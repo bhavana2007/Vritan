@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Boolean, Column, Integer, String
+
 from database import Base
+
 
 class User(Base):
 
@@ -11,9 +13,15 @@ class User(Base):
 
     name = Column(String(100))
 
-    email = Column(String(100), unique=True)
+    # Nullable: patients primarily use mobile; doctors use email
+    email = Column(String(100), unique=True, nullable=True)
 
-    password = Column(String(100))
+    # Nullable: doctors omit; patients use for login (normalized digits)
+    mobile = Column(String(20), unique=True, nullable=True, index=True)
+
+    password = Column(String(255))
 
     hospital = Column(String(100))
-    
+
+    # False until staff verifies the doctor row; meaningless for patient (stored True).
+    is_verified = Column(Boolean, default=False, nullable=False)

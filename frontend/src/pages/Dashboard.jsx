@@ -1,8 +1,31 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+
+import { useAuth } from "../hooks/useAuth";
 
 function Dashboard() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    navigate("/", { replace: true });
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
+
+      <div className="flex max-w-3xl mx-auto mb-6 items-center justify-between gap-4">
+        <p className="text-sm text-gray-400 truncate">
+          Signed in · {user?.mobile || user?.email || "Patient"}
+        </p>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="shrink-0 rounded-lg bg-slate-700 hover:bg-slate-600 px-4 py-2 text-sm text-white"
+        >
+          Log out
+        </button>
+      </div>
 
       <h1 className="text-4xl font-bold text-center mb-8">
         Patient Dashboard
