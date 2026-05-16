@@ -50,6 +50,7 @@ class UserPublic(BaseModel):
     id: int
     role: str
     name: str
+    patient_uid: str = ""
     email: str = ""
     mobile: str = ""
     hospital: str = ""
@@ -60,6 +61,11 @@ class UserPublic(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def coerce_email(cls, v):
+        return "" if v is None else str(v)
+
+    @field_validator("patient_uid", mode="before")
+    @classmethod
+    def coerce_patient_uid(cls, v):
         return "" if v is None else str(v)
 
     @field_validator("mobile", mode="before")

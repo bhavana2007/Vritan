@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User as UserModel
+from models import Doctor, Patient, User as UserModel
 from schemas import LoginResponse, UserLogin, UserPublic, UserRegister
 from schemas import normalize_mobile_digits
 from security import create_access_token, hash_password, verify_password
@@ -25,15 +25,22 @@ def _password_matches(plain: str, stored_hash: str) -> bool:
     return plain == stored_hash
 
 
+def _make_patient_uid(user_id: int) -> str:
+    return f"PAT-{user_id:06d}"
+
+
 def _resolve_login_user(db: Session, identifier_raw: str) -> UserModel | None:
     ident = identifier_raw.strip()
     if not ident:
         return None
-    # Doctor / admin convention: professional email addresses
+    # Doctors sign in with professional email addresses.
     if "@" in ident:
         email = ident.lower()
         return (
-            db.query(UserModel).filter(UserModel.email == email).first()
+            db.query(UserModel)
+            .join(Doctor)
+            .filter(Doctor.email == email)
+            .first()
         )
     try:
         mobile_digits = normalize_mobile_digits(ident)
@@ -42,7 +49,42 @@ def _resolve_login_user(db: Session, identifier_raw: str) -> UserModel | None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Enter a valid mobile number (digits only, 10-15 digits)",
         ) from None
-    return db.query(UserModel).filter(UserModel.mobile == mobile_digits).first()
+    return (
+        db.query(UserModel)
+        .join(Patient)
+        .filter(Patient.mobile == mobile_digits)
+        .first()
+    )
+
+
+def _public_user(user: UserModel) -> UserPublic:
+    if user.role == "patient" and user.patient:
+        patient = user.patient
+        return UserPublic(
+            id=user.id,
+            role=user.role,
+            name=patient.full_name or "",
+            patient_uid=patient.patient_uid or "",
+            mobile=patient.mobile or "",
+            is_verified=True,
+        )
+
+    if user.role == "doctor" and user.doctor:
+        doctor = user.doctor
+        return UserPublic(
+            id=user.id,
+            role=user.role,
+            name=doctor.full_name or "",
+            email=doctor.email or "",
+            hospital=doctor.hospital or "",
+            is_verified=bool(doctor.is_verified),
+        )
+
+    return UserPublic(
+        id=user.id,
+        role=user.role,
+        name="",
+    )
 
 
 @router.post("/register")
@@ -51,8 +93,8 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
 
     if payload.role == "patient":
         exists = (
-            db.query(UserModel)
-            .filter(UserModel.mobile == payload.mobile)
+            db.query(Patient)
+            .filter(Patient.mobile == payload.mobile)
             .first()
         )
         if exists:
@@ -62,18 +104,22 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
             )
         db_user = UserModel(
             role=payload.role,
-            name=payload.name.strip(),
-            mobile=payload.mobile,
-            email=None,
             password=hashed,
-            hospital="",
-            # Patients self-register; verification flag is informational only
-            is_verified=True,
+        )
+        db.add(db_user)
+        db.flush()
+        db.add(
+            Patient(
+                user_id=db_user.id,
+                patient_uid=_make_patient_uid(db_user.id),
+                full_name=payload.name.strip(),
+                mobile=payload.mobile,
+            )
         )
     else:
         exists = (
-            db.query(UserModel)
-            .filter(UserModel.email == str(payload.email).lower())
+            db.query(Doctor)
+            .filter(Doctor.email == str(payload.email).lower())
             .first()
         )
         if exists:
@@ -83,15 +129,20 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
             )
         db_user = UserModel(
             role=payload.role,
-            name=payload.name.strip(),
-            email=str(payload.email).lower(),
-            mobile=None,
             password=hashed,
-            hospital=payload.hospital.strip(),
-            is_verified=False,
+        )
+        db.add(db_user)
+        db.flush()
+        db.add(
+            Doctor(
+                user_id=db_user.id,
+                full_name=payload.name.strip(),
+                email=str(payload.email).lower(),
+                hospital=payload.hospital.strip(),
+                is_verified=False,
+            )
         )
 
-    db.add(db_user)
     db.commit()
     db.refresh(db_user)
 
@@ -125,11 +176,11 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     token = create_access_token(
         user_id=user.id,
         role=user.role,
-        email=user.email or "",
-        mobile=user.mobile or "",
-        is_verified=bool(user.is_verified),
+        email=(user.doctor.email if user.doctor else ""),
+        mobile=(user.patient.mobile if user.patient else ""),
+        is_verified=bool(user.doctor.is_verified if user.doctor else True),
     )
 
-    safe_user = UserPublic.model_validate(user)
+    safe_user = _public_user(user)
 
     return LoginResponse(access_token=token, user=safe_user)
