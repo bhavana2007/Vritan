@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { API_BASE, parseFastApiDetail } from "../api";
+import { doctorAuthService, patientAuthService } from "../services/authService";
 import { AuthContext } from "./authContext";
 
 const STORAGE_TOKEN = "medilocker_token";
@@ -32,27 +32,22 @@ export function AuthProvider({ children }) {
     setSession({ token: null, user: null });
   }, []);
 
-  const login = useCallback(async (identifier, password) => {
-    const res = await fetch(`${API_BASE}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        identifier: identifier.trim(),
-        password,
-      }),
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      throw new Error(parseFastApiDetail(data));
-    }
-
+  const saveSession = useCallback((data) => {
     localStorage.setItem(STORAGE_TOKEN, data.access_token);
     localStorage.setItem(STORAGE_USER, JSON.stringify(data.user));
     setSession({ token: data.access_token, user: data.user });
     return data.user;
   }, []);
+
+  const login = useCallback(async (identifier, password) => {
+    const data = await doctorAuthService.loginWithPassword(identifier, password);
+    return saveSession(data);
+  }, [saveSession]);
+
+  const loginPatientWithOtp = useCallback(async (mobile, otp) => {
+    const data = await patientAuthService.loginWithOtp(mobile, otp);
+    return saveSession(data);
+  }, [saveSession]);
 
   const value = useMemo(
     () => ({
@@ -61,9 +56,10 @@ export function AuthProvider({ children }) {
       user,
       isAuthenticated: Boolean(token && user),
       login,
+      loginPatientWithOtp,
       logout,
     }),
-    [token, user, login, logout],
+    [token, user, login, loginPatientWithOtp, logout],
   );
 
   return (

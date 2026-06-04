@@ -1,23 +1,11 @@
 import { useState } from "react";
 
-/**
- * Doctor area: collect Patient ID first, then verify OTP.
- * Patient records are not shown here (handled elsewhere after backend auth).
- */
 function DoctorDashboard() {
-  // Patient ID typed in the first step
   const [patientId, setPatientId] = useState("");
-
-  // When true, we show the OTP card (after Continue)
   const [otpStepVisible, setOtpStepVisible] = useState(false);
-
-  // OTP the doctor enters to verify access
   const [otpCode, setOtpCode] = useState("");
-
-  // Short message after Verify (demo only — replace with API later)
   const [statusMessage, setStatusMessage] = useState("");
 
-  /** Go from Patient ID → OTP section (only if ID is non-empty). */
   function handleContinue(e) {
     e.preventDefault();
     const trimmedId = patientId.trim();
@@ -31,7 +19,6 @@ function DoctorDashboard() {
     setOtpCode("");
   }
 
-  /** Pretend OTP check — swap this for a real API call when ready. */
   function handleVerifyOtp(e) {
     e.preventDefault();
     const trimmed = otpCode.trim();
@@ -39,24 +26,25 @@ function DoctorDashboard() {
       setStatusMessage("Please enter the OTP.");
       return;
     }
-    // No patient data shown — only acknowledge verification for now
     setStatusMessage("OTP received. Verification can be wired to your backend next.");
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-teal-50/40 to-white text-slate-800">
-      {/* Top bar */}
-      <header className="border-b border-teal-100/80 bg-white/70 backdrop-blur-sm">
+    <div className="med-page">
+      <header className="border-b border-cyan-100 bg-white/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-4xl flex-col gap-2 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-700">
-              Medilocker · Doctor
-            </p>
-            <h1 className="text-xl font-semibold text-slate-900 sm:text-2xl">
-              Secure patient access
-            </h1>
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="MediLocker" className="h-12 w-12 object-contain" />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-teal-700">
+                MediLocker Doctor
+              </p>
+              <h1 className="text-xl font-semibold med-title sm:text-2xl">
+                Secure patient access
+              </h1>
+            </div>
           </div>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm med-muted">
             Enter a Patient ID and complete OTP verification.
           </p>
         </div>
@@ -64,16 +52,12 @@ function DoctorDashboard() {
 
       <main className="mx-auto max-w-4xl px-4 py-8 sm:py-12">
         <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
-          {/* Step 1: Patient ID */}
-          <section
-            aria-labelledby="patient-id-heading"
-            className="rounded-2xl border border-sky-100 bg-white p-6 shadow-[0_4px_24px_-8px_rgba(14,116,144,0.25)] sm:p-8"
-          >
-            <h2 id="patient-id-heading" className="text-lg font-semibold text-slate-900">
+          <section aria-labelledby="patient-id-heading" className="med-card p-6 sm:p-8">
+            <h2 id="patient-id-heading" className="text-lg font-semibold med-title">
               Patient ID
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Enter the patient&apos;s identifier to request access.
+            <p className="mt-1 text-sm med-muted">
+              Enter the patient identifier to request access.
             </p>
 
             <form onSubmit={handleContinue} className="mt-5 flex flex-col gap-4">
@@ -84,32 +68,25 @@ function DoctorDashboard() {
                 id="patient-id"
                 type="text"
                 autoComplete="off"
-                placeholder="e.g. ML-48291"
+                placeholder="e.g. PAT-000123"
                 value={patientId}
                 onChange={(e) => setPatientId(e.target.value)}
-                className="w-full rounded-xl border border-sky-100 bg-sky-50/40 px-4 py-3 text-base text-slate-900 outline-none ring-teal-200 transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-2"
+                className="med-input"
               />
 
-              <button
-                type="submit"
-                className="rounded-xl bg-gradient-to-r from-sky-500 to-teal-500 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:from-sky-600 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-300 focus:ring-offset-2"
-              >
+              <button type="submit" className="med-button">
                 Continue
               </button>
             </form>
           </section>
 
-          {/* Step 2: OTP — only after Continue with a valid (non-empty) ID */}
-          {otpStepVisible && (
-            <section
-              aria-labelledby="otp-heading"
-              className="rounded-2xl border border-teal-100 bg-white p-6 shadow-[0_4px_24px_-8px_rgba(20,184,166,0.35)] sm:p-8"
-            >
-              <h2 id="otp-heading" className="text-lg font-semibold text-slate-900">
+          {otpStepVisible ? (
+            <section aria-labelledby="otp-heading" className="med-card p-6 sm:p-8">
+              <h2 id="otp-heading" className="text-lg font-semibold med-title">
                 OTP verification
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Enter the one-time code sent to the patient (or generated by your system).
+              <p className="mt-1 text-sm med-muted">
+                Enter the one-time code sent to the patient.
               </p>
 
               <form onSubmit={handleVerifyOtp} className="mt-5 flex flex-col gap-4">
@@ -125,28 +102,21 @@ function DoctorDashboard() {
                   maxLength={8}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
-                  className="w-full rounded-xl border border-teal-100 bg-teal-50/30 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 outline-none ring-teal-200 transition placeholder:tracking-normal placeholder:text-slate-400 focus:border-teal-400 focus:ring-2"
+                  className="med-input text-center text-lg tracking-widest"
                 />
 
-                <button
-                  type="submit"
-                  className="rounded-xl border-2 border-teal-600 bg-white px-4 py-3 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-300 focus:ring-offset-2"
-                >
+                <button type="submit" className="med-button-secondary">
                   Verify OTP
                 </button>
               </form>
             </section>
-          )}
+          ) : null}
 
-          {/* Status only — never lists patient records here */}
-          {statusMessage && (
-            <p
-              role="status"
-              className="rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-center text-sm text-slate-700"
-            >
+          {statusMessage ? (
+            <p role="status" className="med-alert med-alert-info text-center">
               {statusMessage}
             </p>
-          )}
+          ) : null}
         </div>
       </main>
     </div>

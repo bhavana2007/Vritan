@@ -5,6 +5,8 @@
 # HTTP API
 fastapi>=0.115.0,<1
 uvicorn[standard]>=0.32.0,<1
+requests>=2.31.0,<3
+python-dotenv>=1.0.0,<2
 
 # Multipart bodies (forms / file uploads later)
 python-multipart>=0.0.9
