@@ -75,3 +75,12 @@ CREATE TABLE IF NOT EXISTS access_requests (
     INDEX idx_access_requests_doctor_id (doctor_id),
     INDEX idx_access_requests_status (status)
 );
+
+CREATE TABLE IF NOT EXISTS admins (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    INDEX idx_admins_email (email)
+);

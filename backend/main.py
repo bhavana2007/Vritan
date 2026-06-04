@@ -6,6 +6,7 @@ from sqlalchemy import inspect, text
 
 from database import engine
 from models import Base
+from routers import admin as admin_router
 from routers import auth as auth_router
 
 from dotenv import load_dotenv
@@ -78,6 +79,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+app.include_router(admin_router.router)
 
 
 @app.get("/")

@@ -3,7 +3,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { homeRouteForRole } from "../homeRoute";
 import { useAuth } from "../hooks/useAuth";
 
-function ProtectedRoute({ children, allowedRoles }) {
+function ProtectedRoute({ children, allowedRoles, loginPath = "/" }) {
   const { bootstrapped, isAuthenticated, user } = useAuth();
   const location = useLocation();
 
@@ -16,7 +16,7 @@ function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/" replace state={{ from: location.pathname }} />;
+    return <Navigate to={loginPath} replace state={{ from: location.pathname }} />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {

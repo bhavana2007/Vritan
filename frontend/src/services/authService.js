@@ -40,3 +40,12 @@ export const patientAuthService = {
     return postJson("/login/patient-otp", { mobile, otp });
   },
 };
+
+export const adminAuthService = {
+  login(email, password) {
+    return postJson("/admin/login", {
+      email: email.trim().toLowerCase(),
+      password,
+    });
+  },
+};

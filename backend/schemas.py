@@ -80,10 +80,25 @@ class UserRegister(BaseModel):
 
 
 class UserLogin(BaseModel):
-    """Doctors and password-based staff accounts sign in with email/password."""
+    """Doctors sign in with email/password."""
 
     identifier: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
+
+
+class AdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1)
+
+
+class AdminProfile(BaseModel):
+    id: int
+    role: Literal["admin"] = "admin"
+    email: str
+    is_active: bool = True
+    created_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class SendOtpRequest(BaseModel):

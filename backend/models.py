@@ -74,6 +74,16 @@ class Doctor(Base):
     )
 
 
+class Admin(Base):
+    __tablename__ = "admins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(100), unique=True, index=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True, nullable=False)
+
+
 class MedicalRecord(Base):
     __tablename__ = "medical_records"
 

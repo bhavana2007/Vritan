@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AccessRequest, Doctor, MedicalRecord, Patient, User as UserModel
-from schemas import AccessRequestPublic, AdminDoctorPublic
+from schemas import AccessRequestPublic
 from schemas import DoctorAccessRequestResponse, DoctorProfile
 from schemas import DoctorResetOtpRequest, DoctorResetPasswordRequest
 from schemas import DoctorVerifyResetOtpRequest, LoginResponse, MedicalRecordPublic
@@ -94,11 +94,17 @@ def _current_user_from_token(
             detail="Invalid or expired token",
         ) from None
 
+    token_role = payload.get("role")
     user = db.query(UserModel).filter(UserModel.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account not found",
+        )
+    if user.role != token_role:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token subject",
         )
     return user
 
@@ -116,14 +122,7 @@ def _resolve_doctor_login_user(db: Session, identifier_raw: str) -> UserModel | 
 
 
 def _resolve_password_login_user(db: Session, identifier_raw: str) -> UserModel | None:
-    doctor_user = _resolve_doctor_login_user(db, identifier_raw)
-    if doctor_user:
-        return doctor_user
-
-    identifier = identifier_raw.strip().lower()
-    if identifier == "admin":
-        return db.query(UserModel).filter(UserModel.role == "admin").first()
-    return None
+    return _resolve_doctor_login_user(db, identifier_raw)
 
 
 def _resolve_doctor_by_email(db: Session, email_raw: str) -> Doctor | None:
@@ -164,15 +163,6 @@ def _require_verified_doctor(current_user: UserModel) -> Doctor:
             detail="Doctor account must be verified before searching patients",
         )
     return doctor
-
-
-def _require_admin(current_user: UserModel) -> UserModel:
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-    return current_user
 
 
 def _safe_original_filename(filename: str | None) -> str:
@@ -429,7 +419,7 @@ def _public_user(user: UserModel) -> UserPublic:
 
 
 def _login_response_for_user(user: UserModel) -> LoginResponse:
-    if user.role not in ("patient", "doctor", "admin"):
+    if user.role not in ("patient", "doctor"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Account has an unsupported role",
@@ -695,59 +685,6 @@ def patient_otp_login(payload: PatientOtpLoginRequest, db: Session = Depends(get
 @router.get("/doctor/me", response_model=DoctorProfile)
 def doctor_me(current_user: UserModel = Depends(_current_user_from_token)):
     return _require_current_doctor(current_user)
-
-
-@router.get("/admin/doctors", response_model=list[AdminDoctorPublic])
-def admin_doctors(
-    status_filter: str = Query(default="pending", alias="status"),
-    current_user: UserModel = Depends(_current_user_from_token),
-    db: Session = Depends(get_db),
-):
-    _require_admin(current_user)
-    query = db.query(Doctor)
-    if status_filter != "all":
-        query = query.filter(Doctor.verification_status == status_filter)
-    return query.order_by(Doctor.created_at.desc(), Doctor.user_id.desc()).all()
-
-
-@router.post("/admin/doctors/{doctor_user_id}/approve", response_model=AdminDoctorPublic)
-def admin_approve_doctor(
-    doctor_user_id: int,
-    current_user: UserModel = Depends(_current_user_from_token),
-    db: Session = Depends(get_db),
-):
-    _require_admin(current_user)
-    doctor = db.query(Doctor).filter(Doctor.user_id == doctor_user_id).first()
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Doctor not found",
-        )
-    doctor.is_verified = True
-    doctor.verification_status = "approved"
-    db.commit()
-    db.refresh(doctor)
-    return doctor
-
-
-@router.post("/admin/doctors/{doctor_user_id}/reject", response_model=AdminDoctorPublic)
-def admin_reject_doctor(
-    doctor_user_id: int,
-    current_user: UserModel = Depends(_current_user_from_token),
-    db: Session = Depends(get_db),
-):
-    _require_admin(current_user)
-    doctor = db.query(Doctor).filter(Doctor.user_id == doctor_user_id).first()
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Doctor not found",
-        )
-    doctor.is_verified = False
-    doctor.verification_status = "rejected"
-    db.commit()
-    db.refresh(doctor)
-    return doctor
 
 
 @router.get("/doctor/patient/{patient_uid}", response_model=PatientSearchResult)

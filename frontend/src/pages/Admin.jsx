@@ -43,6 +43,11 @@ function Admin() {
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          logout();
+          navigate("/admin/login", { replace: true });
+          return;
+        }
         throw new Error(parseFastApiDetail(data));
       }
       setDoctors(Array.isArray(data) ? data : []);
@@ -55,7 +60,7 @@ function Admin() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, token]);
+  }, [logout, navigate, statusFilter, token]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -86,6 +91,11 @@ function Admin() {
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          logout();
+          navigate("/admin/login", { replace: true });
+          return;
+        }
         throw new Error(parseFastApiDetail(data));
       }
       setDoctors((current) =>
@@ -116,7 +126,7 @@ function Admin() {
           <div className="flex min-w-0 items-center gap-3">
             <img src="/logo.png" alt="MediLocker" className="h-11 w-11 object-contain" />
             <p className="truncate text-sm med-muted">
-              Admin - {user?.email || "account"}
+              Admin &middot; {user?.email || "account"}
             </p>
           </div>
           <button type="button" onClick={handleLogout} className="med-button-secondary">

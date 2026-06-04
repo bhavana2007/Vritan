@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { doctorAuthService, patientAuthService } from "../services/authService";
+import {
+  adminAuthService,
+  doctorAuthService,
+  patientAuthService,
+} from "../services/authService";
 import { AuthContext } from "./authContext";
 
 const STORAGE_TOKEN = "medilocker_token";
@@ -49,6 +53,11 @@ export function AuthProvider({ children }) {
     return saveSession(data);
   }, [saveSession]);
 
+  const loginAdmin = useCallback(async (email, password) => {
+    const data = await adminAuthService.login(email, password);
+    return saveSession(data);
+  }, [saveSession]);
+
   const value = useMemo(
     () => ({
       bootstrapped: true,
@@ -56,10 +65,11 @@ export function AuthProvider({ children }) {
       user,
       isAuthenticated: Boolean(token && user),
       login,
+      loginAdmin,
       loginPatientWithOtp,
       logout,
     }),
-    [token, user, login, loginPatientWithOtp, logout],
+    [token, user, login, loginAdmin, loginPatientWithOtp, logout],
   );
 
   return (
