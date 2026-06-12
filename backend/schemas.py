@@ -42,6 +42,10 @@ class UserRegister(BaseModel):
     hospital: str = ""
     # Doctor only
     email: EmailStr | None = None
+    phone: str | None = None
+    specialization: str | None = None
+    medical_license_number: str | None = None
+    years_of_experience: int | None = Field(default=None, ge=0)
     # Patient only
     mobile: str | None = None
     date_of_birth: date | None = None
@@ -61,8 +65,12 @@ class UserRegister(BaseModel):
                 raise ValueError("Mobile number is required for patients")
             self.mobile = normalize_mobile_digits(str(self.mobile))
             self.email = None
+            self.phone = None
             self.hospital = ""
             self.password = None
+            self.specialization = None
+            self.medical_license_number = None
+            self.years_of_experience = None
             self.gender = self.gender.strip() if isinstance(self.gender, str) else None
             self.blood_group = (
                 self.blood_group.strip().upper()
@@ -74,8 +82,18 @@ class UserRegister(BaseModel):
                 raise ValueError("Email is required for doctors")
             if not self.hospital.strip():
                 raise ValueError("Hospital name is required for doctors")
+            if not self.phone:
+                raise ValueError("Phone number is required for doctors")
+            if not self.medical_license_number:
+                raise ValueError("Medical license number is required for doctors")
+            self.phone = normalize_mobile_digits(str(self.phone))
             self.password = validate_doctor_password(self.password or "")
             self.mobile = None
+            self.date_of_birth = None
+            self.gender = None
+            self.blood_group = None
+            self.height = None
+            self.weight = None
         return self
 
 
@@ -247,8 +265,12 @@ class DoctorResetPasswordRequest(BaseModel):
 class DoctorProfile(BaseModel):
     full_name: str = ""
     email: str = ""
+    phone: str = ""
     hospital: str = ""
     specialization: str | None = None
+    medical_license_number: str = ""
+    years_of_experience: int | None = None
+    verification_document_url: str | None = None
     is_verified: bool = False
     verification_status: str = "pending"
 
@@ -277,6 +299,8 @@ class MedicalRecordPublic(BaseModel):
     detected_medicines: list[dict[str, str]] = Field(default_factory=list)
     probable_conditions: list[str] = Field(default_factory=list)
     ai_structured_data: dict[str, Any] | None = None
+    confidence_score: float | None = None # New field for overall confidence
+    ai_summary: str | None = None # New field for AI summary
 
     model_config = {"from_attributes": True}
 
@@ -285,8 +309,12 @@ class AdminDoctorPublic(BaseModel):
     user_id: int
     full_name: str = ""
     email: str = ""
+    phone: str = ""
     hospital: str = ""
     specialization: str | None = None
+    medical_license_number: str = ""
+    years_of_experience: int | None = None
+    verification_document_url: str | None = None
     is_verified: bool = False
     verification_status: str = "pending"
     created_at: datetime | None = None

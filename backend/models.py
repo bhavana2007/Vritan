@@ -60,8 +60,12 @@ class Doctor(Base):
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     full_name = Column(String(100))
     email = Column(String(100), unique=True, index=True)
+    phone = Column(String(20), unique=True, index=True)
     hospital = Column(String(100))
     specialization = Column(String(100), nullable=True)
+    medical_license_number = Column(String(100), unique=True, index=True)
+    years_of_experience = Column(Integer, nullable=True)
+    verification_document_url = Column(String(255), nullable=True)
     is_verified = Column(Boolean, default=False, nullable=False)
     verification_status = Column(String(20), default="pending", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -100,6 +104,8 @@ class MedicalRecord(Base):
     detected_medicines = Column(Text, nullable=True)
     probable_conditions = Column(Text, nullable=True)
     ai_structured_data = Column(Text, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    ai_summary = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="medical_records")
 

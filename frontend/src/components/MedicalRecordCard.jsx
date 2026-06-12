@@ -93,53 +93,55 @@ function MedicalRecordCard({
 
         <InfoSection label="Doctor/Hospital">
           <p className="mt-1 text-sm med-muted">
-            <HighlightText text={doctorOrHospital || "Not detected"} query={searchQuery} />
+            <HighlightText text={doctorOrHospital || structured.doctor_or_hospital || "Not detected"} query={searchQuery} />
           </p>
         </InfoSection>
 
         {record.detected_medicines?.length ? (
-          <InfoSection label="Medicines, Dosage, Duration">
+          <InfoSection label="Medicines">
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {record.detected_medicines.map((medicine, index) => (
                 <div key={`${record.id}-medicine-${index}`} className="med-mini-card">
                   <p className="font-semibold text-teal-800">
                     <HighlightText text={medicine.name} query={searchQuery} />
                   </p>
-                  <p className="text-sm med-muted">
-                    Dosage: {medicine.dosage || "Not detected"}
-                  </p>
-                  <p className="text-sm med-muted">
-                    Duration: {medicine.duration || "Not detected"}
-                  </p>
+                  {medicine.dosage ? (
+                    <p className="text-sm med-muted">
+                      Dosage: <HighlightText text={medicine.dosage} query={searchQuery} />
+                    </p>
+                  ) : null}
+                  {medicine.duration ? (
+                    <p className="text-sm med-muted">
+                      Duration: <HighlightText text={medicine.duration} query={searchQuery} />
+                    </p>
+                  ) : null}
+                  {medicine.instructions ? (
+                    <p className="text-sm med-muted">
+                      Instructions: <HighlightText text={medicine.instructions} query={searchQuery} />
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>
           </InfoSection>
         ) : null}
 
-        {advice.length ? (
-          <InfoSection label="Advice">
-            <div className="mt-2 flex flex-wrap gap-2">
-              {advice.map((item, index) => (
-                <span key={`${record.id}-advice-${index}`} className="med-chip">
-                  <HighlightText text={item} query={searchQuery} />
-                </span>
-              ))}
-            </div>
-          </InfoSection>
-        ) : null}
-
-        {record.probable_conditions?.length ? (
-          <InfoSection label="Possible Related Conditions">
-            <div className="mt-2 flex flex-wrap gap-2">
-              {record.probable_conditions.map((condition, index) => (
-                <span key={`${record.id}-condition-${index}`} className="med-chip">
-                  <HighlightText text={condition} query={searchQuery} />
-                </span>
-              ))}
-            </div>
-          </InfoSection>
-        ) : null}
+        <InfoSection label="Possible Related Conditions">
+          <div className="mt-2 flex flex-wrap gap-2">
+            {record.probable_conditions?.length ? (
+              record.probable_conditions.map((condition, index) => {
+                const conditionText = typeof condition === 'string' ? condition : (condition?.condition || 'Unknown');
+                return (
+                  <span key={`${record.id}-condition-${index}`} className="med-chip">
+                    <HighlightText text={conditionText} query={searchQuery} />
+                  </span>
+                );
+              })
+            ) : (
+              <span className="med-chip">Unknown</span>
+            )}
+          </div>
+        </InfoSection>
 
         {record.notes ? (
           <InfoSection label="Patient Notes">
@@ -147,17 +149,6 @@ function MedicalRecordCard({
               <HighlightText text={record.notes} query={searchQuery} />
             </p>
           </InfoSection>
-        ) : null}
-
-        {record.cleaned_text ? (
-          <details className="mt-3 text-sm med-muted">
-            <summary className="cursor-pointer font-semibold text-teal-700">
-              OCR text
-            </summary>
-            <p className="mt-2 whitespace-pre-wrap">
-              <HighlightText text={record.cleaned_text} query={searchQuery} />
-            </p>
-          </details>
         ) : null}
 
         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">

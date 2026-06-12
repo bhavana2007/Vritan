@@ -11,7 +11,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AccessRequest, Doctor, MedicalRecord, Patient, User as UserModel
+from models import AccessRequest, Admin, Doctor, MedicalRecord, Patient, User as UserModel
 from schemas import AccessRequestPublic
 from schemas import DoctorAccessRequestResponse, DoctorProfile
 from schemas import DoctorResetOtpRequest, DoctorResetPasswordRequest
@@ -23,6 +23,11 @@ from security import InvalidTokenError, create_access_token, decode_access_token
 from security import hash_password, verify_password
 from services.gemini_service import structure_medical_text
 from services.ocr_service import extract_text_from_file
+from services.email_service import (
+    send_doctor_verification_request_to_admin,
+    send_doctor_approval_email,
+    send_doctor_rejection_email,
+)
 
 router = APIRouter(tags=["auth"])
 
@@ -258,6 +263,8 @@ def _medical_record_public(record: MedicalRecord) -> MedicalRecordPublic:
         detected_medicines=detected_medicines if isinstance(detected_medicines, list) else [],
         probable_conditions=probable_conditions if isinstance(probable_conditions, list) else [],
         ai_structured_data=ai_structured_data if isinstance(ai_structured_data, dict) else None,
+        confidence_score=record.confidence_score,
+        ai_summary=record.ai_summary,
     )
 
 
@@ -281,9 +288,10 @@ def _apply_record_search(query, search: str | None, filter_by: str = "all"):
             MedicalRecord.detected_medicines,
             MedicalRecord.probable_conditions,
             MedicalRecord.ai_structured_data,
+            MedicalRecord.ai_summary, # Add for search
         ],
         "medicine": [MedicalRecord.detected_medicines, MedicalRecord.ai_structured_data],
-        "condition": [MedicalRecord.probable_conditions, MedicalRecord.ai_structured_data],
+        "condition": [MedicalRecord.probable_conditions, MedicalRecord.ai_structured_data, MedicalRecord.ai_summary],
         "ocr": [MedicalRecord.extracted_text, MedicalRecord.cleaned_text],
         "type": [MedicalRecord.record_type],
         "month": [],
@@ -458,6 +466,7 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     }
 
     print(f"Development OTP for patient mobile {payload.mobile}: {otp}")
+    print(f"UPLOAD STARTED")
 
     return {"message": "OTP sent successfully"}
 
@@ -514,17 +523,41 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
             )
         )
     else:
-        hashed = hash_password(payload.password)
-        exists = (
+        # Uniqueness checks for doctors
+        email_exists = (
             db.query(Doctor)
             .filter(Doctor.email == str(payload.email).lower())
             .first()
         )
-        if exists:
+        if email_exists:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
+        
+        phone_exists = (
+            db.query(Doctor)
+            .filter(Doctor.phone == payload.phone)
+            .first()
+        )
+        if phone_exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already registered",
+            )
+        
+        license_exists = (
+            db.query(Doctor)
+            .filter(Doctor.medical_license_number == payload.medical_license_number)
+            .first()
+        )
+        if license_exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Medical license number already registered",
+            )
+        
+        hashed = hash_password(payload.password)
         db_user = UserModel(
             role=payload.role,
             password=hashed,
@@ -536,7 +569,11 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
                 user_id=db_user.id,
                 full_name=payload.name.strip(),
                 email=str(payload.email).lower(),
+                phone=payload.phone,
                 hospital=payload.hospital.strip(),
+                specialization=payload.specialization.strip() if payload.specialization else None,
+                medical_license_number=payload.medical_license_number.strip(),
+                years_of_experience=payload.years_of_experience,
                 is_verified=False,
                 verification_status="pending",
             )
@@ -547,6 +584,17 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
 
     if payload.role == "patient":
         patient_otp_store.pop(payload.mobile, None)
+    else:
+        # Send email notification to admin about new doctor registration
+        send_doctor_verification_request_to_admin(
+            doctor_name=payload.name.strip(),
+            doctor_email=str(payload.email).lower(),
+            doctor_phone=payload.phone,
+            medical_license_number=payload.medical_license_number.strip(),
+            hospital=payload.hospital.strip(),
+            specialization=payload.specialization.strip() if payload.specialization else None,
+            years_of_experience=payload.years_of_experience,
+        )
 
     return {"message": f"{payload.role} registered successfully"}
 
@@ -685,6 +733,142 @@ def patient_otp_login(payload: PatientOtpLoginRequest, db: Session = Depends(get
 @router.get("/doctor/me", response_model=DoctorProfile)
 def doctor_me(current_user: UserModel = Depends(_current_user_from_token)):
     return _require_current_doctor(current_user)
+
+
+def _require_admin(current_user: UserModel) -> Admin:
+    if current_user.role != "admin" or not current_user.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user.admin
+
+
+@router.get("/admin/doctors/pending", response_model=list[AdminDoctorPublic])
+def admin_list_pending_doctors(
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    _require_admin(current_user)
+    pending_doctors = (
+        db.query(Doctor)
+        .filter(Doctor.verification_status == "pending")
+        .order_by(Doctor.created_at.desc())
+        .all()
+    )
+    return pending_doctors
+
+
+@router.post("/admin/doctors/{doctor_user_id}/approve")
+def admin_approve_doctor(
+    doctor_user_id: int,
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    _require_admin(current_user)
+    doctor = (
+        db.query(Doctor)
+        .filter(Doctor.user_id == doctor_user_id)
+        .first()
+    )
+    if not doctor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor not found",
+        )
+    
+    doctor.verification_status = "approved"
+    doctor.is_verified = True
+    db.commit()
+    db.refresh(doctor)
+    
+    # Send approval email to doctor
+    send_doctor_approval_email(
+        doctor_email=doctor.email,
+        doctor_name=doctor.full_name,
+    )
+    
+    return {"message": "Doctor approved successfully"}
+
+
+@router.post("/admin/doctors/{doctor_user_id}/reject")
+def admin_reject_doctor(
+    doctor_user_id: int,
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    _require_admin(current_user)
+    doctor = (
+        db.query(Doctor)
+        .filter(Doctor.user_id == doctor_user_id)
+        .first()
+    )
+    if not doctor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor not found",
+        )
+    
+    doctor.verification_status = "rejected"
+    doctor.is_verified = False
+    db.commit()
+    db.refresh(doctor)
+    
+    # Send rejection email to doctor
+    send_doctor_rejection_email(
+        doctor_email=doctor.email,
+        doctor_name=doctor.full_name,
+    )
+    
+    return {"message": "Doctor rejected successfully"}
+
+
+@router.post("/doctor/upload-verification-document")
+def upload_verification_document(
+    file: UploadFile = File(...),
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    doctor = _require_current_doctor(current_user)
+    
+    # Validate file extension
+    extension = _safe_upload_extension(file.filename)
+    
+    # Create verification documents directory if it doesn't exist
+    verification_dir = UPLOAD_DIR / "verification_documents"
+    verification_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate unique filename
+    stored_filename = f"doctor_{doctor.user_id}_{secrets.token_urlsafe(16)}{extension}"
+    destination = verification_dir / stored_filename
+    
+    # Save file
+    bytes_written = 0
+    try:
+        with destination.open("wb") as buffer:
+            while chunk := file.file.read(1024 * 1024):
+                bytes_written += len(chunk)
+                if bytes_written > MAX_UPLOAD_BYTES:
+                    buffer.close()
+                    destination.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="File size should be less than 10MB",
+                    )
+                buffer.write(chunk)
+    except Exception as e:
+        print(f"VERIFICATION DOCUMENT SAVE FAILED: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save verification document.",
+        ) from e
+    
+    # Update doctor record with verification document URL
+    doctor.verification_document_url = f"/uploads/verification_documents/{stored_filename}"
+    db.commit()
+    db.refresh(doctor)
+    
+    return {"message": "Verification document uploaded successfully", "document_url": doctor.verification_document_url}
 
 
 @router.get("/doctor/patient/{patient_uid}", response_model=PatientSearchResult)
@@ -1025,41 +1209,87 @@ def upload_medical_record(
     destination = UPLOAD_DIR / stored_filename
 
     bytes_written = 0
-    with destination.open("wb") as buffer:
-        while chunk := file.file.read(1024 * 1024):
-            bytes_written += len(chunk)
-            if bytes_written > MAX_UPLOAD_BYTES:
-                buffer.close()
-                destination.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="File size should be less than 10MB",
-                )
-            buffer.write(chunk)
+    try:
+        with destination.open("wb") as buffer:
+            while chunk := file.file.read(1024 * 1024):
+                bytes_written += len(chunk)
+                if bytes_written > MAX_UPLOAD_BYTES:
+                    buffer.close()
+                    destination.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="File size should be less than 10MB",
+                    )
+                buffer.write(chunk)
+        print(f"FILE SAVED: {destination}")
 
-    extracted_text = extract_text_from_file(destination)
-    ai_data = structure_medical_text(extracted_text)
-    if ai_data.get("classification") == "non-medical":
-        destination.unlink(missing_ok=True)
+    except Exception as e:
+        print(f"FILE SAVE FAILED: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=NON_MEDICAL_UPLOAD_MESSAGE,
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save uploaded file.",
+        ) from e
 
-    cleaned_text = ai_data.get("cleaned_text") or extracted_text
-    detected_medicines = ai_data.get("medicines") or []
-    probable_conditions = ai_data.get("possible_conditions") or []
+
+    # New Processing Pipeline - Gemini as Primary Structurer
+    print("UPLOAD STARTED")
+    
+    print(f"OCR STARTED for {destination}")
+    print(f"OCR FILE EXISTS BEFORE OCR: {destination.exists()}")
+    extracted_text = extract_text_from_file(destination)
+    print(f"OCR RETURN: {extracted_text[:300] if extracted_text else None}")
+    print(f"OCR RESULT RECEIVED (length: {len(extracted_text)})")
+    
+    # Use Gemini for all structuring
+    print(f"GEMINI STRUCTURING STARTED")
+    try:
+        gemini_result = structure_medical_text(ocr_text=extracted_text)
+        print(f"GEMINI RESULT: {gemini_result}")
+        
+        detected_medicines = gemini_result.get("medicines", [])
+        final_conditions = gemini_result.get("possible_conditions", [])
+        confidence_score = gemini_result.get("confidence", 0)
+        ai_summary = f"AI inference with {confidence_score}% confidence"
+        doctor_or_hospital = gemini_result.get("doctor_or_hospital", "")
+        
+        print(f"DETECTED MEDICINES: {detected_medicines}")
+        print(f"FINAL CONDITIONS: {final_conditions}")
+        print(f"CONFIDENCE SCORE: {confidence_score}")
+        print(f"DOCTOR/HOSPITAL: {doctor_or_hospital}")
+    except Exception as e:
+        print(f"GEMINI STRUCTURING FAILED: {e}")
+        detected_medicines = []
+        final_conditions = []
+        confidence_score = 0
+        ai_summary = "AI unavailable"
+        doctor_or_hospital = ""
+
     upload_time = _now_utc()
+    # Re-evaluate smart filename with actual AI data
     smart_filename = _smart_record_filename(
         patient_id=current_user.patient.id,
         record_type=normalized_type,
         extension=extension,
-        ai_data=ai_data,
+        ai_data={
+            "possible_conditions": final_conditions,
+            "confidence": confidence_score,
+            "summary": ai_summary,
+        },
         upload_time=upload_time,
     )
     smart_destination = UPLOAD_DIR / smart_filename
+    print(f"RENAMING FILE: {destination} -> {smart_destination}")
     destination.replace(smart_destination)
     destination = smart_destination
+    print(f"FILE RENAMED: {destination}")
+
+    # Prepare AI structured data for storage
+    ai_structured_data = {
+        "possible_conditions": final_conditions,
+        "confidence": confidence_score,
+        "summary": ai_summary,
+        "doctor_or_hospital": doctor_or_hospital,
+    }
 
     record = MedicalRecord(
         patient_id=current_user.patient.id,
@@ -1069,16 +1299,130 @@ def upload_medical_record(
         uploaded_by=current_user.id,
         notes=notes.strip() or None,
         extracted_text=extracted_text or None,
-        cleaned_text=cleaned_text or None,
+        cleaned_text=extracted_text or None,  # Use raw OCR as cleaned since Gemini handles it
         detected_medicines=_json_dumps(detected_medicines),
-        probable_conditions=_json_dumps(probable_conditions),
-        ai_structured_data=_json_dumps(ai_data),
+        probable_conditions=_json_dumps(final_conditions),
+        ai_structured_data=_json_dumps(ai_structured_data),
+        confidence_score=confidence_score,
+        ai_summary=ai_summary,
     )
+    print(f"DB INSERT VALUES:")
+    print(f"  extracted_text: {record.extracted_text}")
+    print(f"  cleaned_text: {record.cleaned_text}")
+    print(f"  detected_medicines: {record.detected_medicines}")
+    print(f"  probable_conditions: {record.probable_conditions}")
+    print(f"DB SAVE STARTED for patient {current_user.patient.id}")
     db.add(record)
     db.commit()
     db.refresh(record)
+    print(f"UPLOAD COMPLETE for record {record.id}")
 
     return _medical_record_public(record)
+
+
+@router.get("/records/my-records", response_model=list[MedicalRecordPublic])
+def my_medical_records(
+    q: str | None = Query(default=None, max_length=100),
+    filter_by: str = Query(default="all", alias="filter"),
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "patient" or not current_user.patient:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only patient accounts can view their own medical records",
+        )
+
+    query = (
+        db.query(MedicalRecord)
+        .filter(MedicalRecord.patient_id == current_user.patient.id)
+    )
+    return [
+        _medical_record_public(record)
+        for record in _apply_record_search(query, q, filter_by)
+        .order_by(MedicalRecord.uploaded_at.desc(), MedicalRecord.id.desc())
+        .all()
+    ]
+
+
+@router.delete("/records/{record_id}")
+def delete_medical_record(
+    record_id: int,
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "patient" or not current_user.patient:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owning patient can delete medical records",
+        )
+
+    record = (
+        db.query(MedicalRecord)
+        .filter(
+            MedicalRecord.id == record_id,
+            MedicalRecord.patient_id == current_user.patient.id,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medical record not found",
+        )
+
+    file_path = _record_file_path(record)
+    db.delete(record)
+    db.commit()
+    file_path.unlink(missing_ok=True)
+    return {"message": "Medical record deleted successfully"}
+
+
+@router.get("/records/{record_id}/file")
+def view_medical_record_file(
+    record_id: int,
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    record = db.query(MedicalRecord).filter(MedicalRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medical record not found",
+        )
+
+    allowed = False
+    if current_user.role == "patient" and current_user.patient:
+        allowed = record.patient_id == current_user.patient.id
+    elif current_user.role == "doctor" and current_user.doctor:
+        doctor = _require_verified_doctor(current_user)
+        allowed = (
+            _active_access_request(
+                db,
+                patient_id=record.patient_id,
+                doctor_id=doctor.user_id,
+            )
+            is not None
+        )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patient approval is required before viewing this file",
+        )
+
+    file_path = _record_file_path(record)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Uploaded file is not available",
+        )
+
+    return FileResponse(
+        path=file_path,
+        filename=record.original_filename,
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/records/my-records", response_model=list[MedicalRecordPublic])

@@ -29,14 +29,23 @@ def clean_ocr_text(text: str | None) -> str:
 
 
 def extract_text_from_file(file_path: str | Path) -> str:
+    print(f"OCR STARTED")
+    print(f"OCR API KEY loaded: {bool(OCR_API_KEY)}")
+    
     if not OCR_API_KEY:
+        print(f"OCR ERROR: API key not found")
         return ""
 
     path = Path(file_path)
+    print(f"OCR FILE PATH: {path}")
+    print(f"OCR FILE EXISTS: {path.exists()}")
+    
     if not path.exists():
+        print(f"OCR ERROR: File does not exist at {path}")
         return ""
 
     try:
+        print(f"OCR REQUEST STARTED to {OCR_API_URL}")
         with path.open("rb") as file_handle:
             response = requests.post(
                 OCR_API_URL,
@@ -48,18 +57,33 @@ def extract_text_from_file(file_path: str | Path) -> str:
                 },
                 timeout=60,
             )
+        print(f"OCR RESPONSE STATUS: {response.status_code}")
         response.raise_for_status()
         result = response.json()
-    except (requests.RequestException, ValueError):
+        print(f"OCR RESPONSE BODY: {result}")
+    except requests.RequestException as e:
+        print(f"OCR ERROR: RequestException - {e}")
+        return ""
+    except ValueError as e:
+        print(f"OCR ERROR: ValueError (JSON decode) - {e}")
         return ""
 
     if result.get("IsErroredOnProcessing"):
+        error_message = result.get("ErrorMessage", "Unknown OCR processing error")
+        print(f"OCR ERROR: Processing failed - {error_message}")
         return ""
 
     parsed_results = result.get("ParsedResults") or []
+    print(f"OCR PARSED RESULTS COUNT: {len(parsed_results)}")
+    
     parsed_text = "\n\n".join(
         item.get("ParsedText", "")
         for item in parsed_results
         if isinstance(item, dict)
     )
-    return clean_ocr_text(parsed_text)
+    
+    cleaned = clean_ocr_text(parsed_text)
+    print(f"OCR TEXT LENGTH: {len(cleaned)}")
+    print(f"OCR DONE")
+    
+    return cleaned

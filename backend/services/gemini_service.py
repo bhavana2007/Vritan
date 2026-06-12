@@ -139,6 +139,84 @@ def _normalize_result(parsed: dict[str, Any], fallback_text: str) -> dict[str, A
     }
 
 
+def infer_conditions_from_medicines(medicines: list, advice: list = None, doctor_or_hospital: str = "") -> dict[str, Any]:
+    if not GEMINI_API_KEY:
+        return {"possible_conditions": [], "confidence": 0}
+    
+    medicines_text = "\n".join([f"- {m.get('name', '')} ({m.get('dosage', '')})" for m in medicines])
+    advice_text = "\n".join(advice) if advice else "None"
+    
+    prompt = f"""
+You are a medical AI assistant. Given the following extracted medicines from a prescription,
+infer ONLY possible related conditions based on the medications.
+
+NEVER produce a diagnosis. These are probabilistic inferences only.
+
+Medicines:
+{medicines_text}
+
+Advice:
+{advice_text}
+
+Doctor/Hospital:
+{doctor_or_hospital}
+
+Return only valid JSON with this exact shape:
+{{
+  "possible_conditions": ["Type 2 Diabetes", "Hypertension"],
+  "confidence": 85
+}}
+
+Rules:
+- possible_conditions: Array of condition names (without "Possible related condition:" prefix)
+- confidence: Integer 0-100 representing confidence level
+- If uncertain, return empty array for possible_conditions and 0 for confidence
+""".strip()
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    try:
+        response = requests.post(
+            GEMINI_API_URL,
+            params={"key": GEMINI_API_KEY},
+            json=payload,
+            timeout=60,
+        )
+        response.raise_for_status()
+        result = response.json()
+    except (requests.RequestException, ValueError):
+        return {"possible_conditions": [], "confidence": 0}
+
+    candidates = result.get("candidates") or []
+    content = candidates[0].get("content", {}) if candidates else {}
+    parts = content.get("parts") or []
+    text = "\n".join(
+        part.get("text", "")
+        for part in parts
+        if isinstance(part, dict) and part.get("text")
+    )
+
+    parsed = _extract_json_object(text) if text else None
+    if not parsed:
+        return {"possible_conditions": [], "confidence": 0}
+    
+    return {
+        "possible_conditions": parsed.get("possible_conditions", []),
+        "confidence": parsed.get("confidence", 0)
+    }
+
+
 def structure_medical_text(ocr_text: str | None) -> dict[str, Any]:
     source_text = str(ocr_text or "").strip()
     if not source_text:
@@ -147,31 +225,48 @@ def structure_medical_text(ocr_text: str | None) -> dict[str, Any]:
         return _empty_result(source_text)
 
     prompt = f"""
-You are helping organize patient-uploaded medical documents for search.
-Correct obvious OCR spelling and formatting mistakes, detect medicines, dosage,
-duration, doctor or hospital, useful advice, notes, possible related conditions,
-and whether the document is medically relevant.
+You are a medical AI assistant that structures prescription OCR data.
 
-Never produce a diagnosis or confirmed disease. Conditions must be phrased as
-"Possible related condition: ...". If uncertain, return an empty array.
+Extract ONLY the following from the OCR text:
 
-Classify the document as exactly one of:
-"prescription", "medical report", "scan", "non-medical", or "unknown".
-Use "non-medical" only when the OCR text clearly does not describe a medical
-prescription, scan, lab report, or medical document.
+1. Doctor name (e.g., "Dr R Mehta", "Dr. Smith")
+2. Hospital/Clinic name (e.g., "Life Line Clinic", "City Hospital")
+3. Medicines with:
+   - name (actual medicine name only)
+   - dosage (e.g., "500mg", "5mg", "1-0-1")
+   - duration (e.g., "7 days", "2 weeks")
+   - instructions (e.g., "after food", "before breakfast", "take twice daily")
+4. Possible related conditions (based on medicines)
+
+IMPORTANT RULES:
+- NEVER extract standalone words like "after food", "before", "advice", "date", "reg no", "phone", "rx" as medicines
+- These should ONLY appear in the "instructions" field if they are part of a medicine's usage instructions
+- Medicine names must be actual pharmaceutical names (e.g., Metformin, Glibenclamide, Paracetamol)
+- If uncertain about a medicine, do not include it
+- Never diagnose - conditions are probabilistic inferences only
 
 Return only valid JSON with this exact shape:
 {{
-  "cleaned_text": "corrected readable OCR text",
-  "classification": "prescription",
-  "doctor_or_hospital": "doctor, clinic, hospital, or lab name if present",
+  "doctor_name": "doctor name if present",
+  "hospital": "hospital or clinic name if present",
   "medicines": [
-    {{"name": "medicine name", "dosage": "dosage if present", "duration": "duration if present"}}
+    {{
+      "name": "medicine name",
+      "dosage": "dosage if present",
+      "duration": "duration if present",
+      "instructions": "usage instructions if present"
+    }}
   ],
-  "possible_conditions": ["Possible related condition: condition"],
-  "advice": ["medical advice or instructions, not diagnosis"],
-  "notes": ["brief note"]
+  "possible_conditions": ["Type 2 Diabetes", "Hypertension"],
+  "confidence": 85
 }}
+
+Rules:
+- doctor_name: Extract doctor name with "Dr" prefix if present
+- hospital: Extract clinic/hospital/medical center name
+- medicines: Array of medicine objects. Only include actual medicines.
+- possible_conditions: Array of condition names (without "Possible related condition:" prefix)
+- confidence: Integer 0-100 representing confidence level
 
 OCR text:
 {source_text}
@@ -214,4 +309,24 @@ OCR text:
     parsed = _extract_json_object(text) if text else None
     if not parsed:
         return _empty_result(source_text)
-    return _normalize_result(parsed, source_text)
+    
+    # Normalize the new structure to match existing schema
+    normalized = {
+        "cleaned_text": source_text,
+        "classification": "prescription",
+        "doctor_or_hospital": f"{parsed.get('doctor_name', '')} - {parsed.get('hospital', '')}".strip(" -"),
+        "medicines": [
+            {
+                "name": m.get("name", ""),
+                "dosage": m.get("dosage", ""),
+                "duration": m.get("duration", "")
+            }
+            for m in parsed.get("medicines", [])
+        ],
+        "possible_conditions": [f"Possible related condition: {c}" for c in parsed.get("possible_conditions", [])],
+        "advice": [m.get("instructions", "") for m in parsed.get("medicines", []) if m.get("instructions")],
+        "notes": [],
+        "confidence": parsed.get("confidence", 0)
+    }
+    
+    return _normalize_result(normalized, source_text)

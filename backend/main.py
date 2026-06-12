@@ -53,6 +53,8 @@ ensure_table_columns(
         "detected_medicines": "TEXT NULL",
         "probable_conditions": "TEXT NULL",
         "ai_structured_data": "TEXT NULL",
+        "confidence_score": "REAL NULL", # New column
+        "ai_summary": "TEXT NULL",     # New column
     },
 )
 ensure_table_columns(
