@@ -3,11 +3,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
+from sqlalchemy.orm import Session
 
-from database import engine
-from models import Base
+from database import engine, get_db
+from models import Base, Admin
 from routers import admin as admin_router
 from routers import auth as auth_router
+from security import hash_password
 
 from dotenv import load_dotenv
 
@@ -18,6 +20,28 @@ UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 Base.metadata.create_all(bind=engine)
+
+
+def bootstrap_admin():
+    """Create default admin account if none exists."""
+    with Session(engine) as db:
+        admin_count = db.query(Admin).count()
+        if admin_count == 0:
+            print("ADMIN BOOTSTRAP - Creating default admin account")
+            default_admin = Admin(
+                email="medilockeradmin@gmail.com",
+                password=hash_password("Admin@123"),
+                is_active=True,
+            )
+            db.add(default_admin)
+            db.commit()
+            print("ADMIN CREATED - Default admin account created successfully")
+            print("ADMIN CREDENTIALS - Email: medilockeradmin@gmail.com, Password: Admin@123")
+        else:
+            print("ADMIN EXISTS - Admin account already exists, skipping bootstrap")
+
+
+bootstrap_admin()
 
 
 def ensure_table_columns(table_name: str, required_columns: dict[str, str]):

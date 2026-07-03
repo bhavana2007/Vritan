@@ -301,6 +301,17 @@ class MedicalRecordPublic(BaseModel):
     ai_structured_data: dict[str, Any] | None = None
     confidence_score: float | None = None # New field for overall confidence
     ai_summary: str | None = None # New field for AI summary
+    # AI pipeline fields
+    document_type: str | None = None
+    classification_confidence: float | None = None
+    classification_reason: str | None = None
+    ocr_quality_score: float | None = None
+    processing_time: float | None = None
+    ai_version: str | None = None
+    schema_validation_passed: bool | None = None
+    validation_errors: str | None = None
+    document_title: str | None = None
+    component_confidence: dict[str, float] | None = None
 
     model_config = {"from_attributes": True}
 

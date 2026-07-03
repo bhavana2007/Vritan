@@ -33,14 +33,13 @@ function Admin() {
     setErrorMessage("");
 
     try {
-      const response = await fetch(
-        `${API_BASE}/admin/doctors?status=${encodeURIComponent(statusFilter)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+      const endpoint = `${API_BASE}/admin/doctors?status=${encodeURIComponent(statusFilter)}`;
+      
+      const response = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
@@ -178,18 +177,47 @@ function Admin() {
             {doctors.map((doctor) => (
               <div key={doctor.user_id} className="med-detail-card">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="break-words text-lg font-semibold med-title">
                       {doctor.full_name || "Doctor"}
                     </p>
                     <div className="mt-2 grid grid-cols-1 gap-2 text-sm med-muted sm:grid-cols-2">
                       <p>Email: {doctor.email || "Not provided"}</p>
                       <p>Hospital: {doctor.hospital || "Not provided"}</p>
+                      <p>Phone: {doctor.phone || "Not provided"}</p>
+                      <p>License: {doctor.medical_license_number || "Not provided"}</p>
+                      <p>Specialization: {doctor.specialization || "Not specified"}</p>
+                      <p>Experience: {doctor.years_of_experience ? `${doctor.years_of_experience} years` : "Not specified"}</p>
                       <p>Registered: {formatDateTime(doctor.created_at)}</p>
                       <p>Status: {doctor.verification_status}</p>
+                      {doctor.verification_document_url && (
+                        <p>
+                          <a
+                            href={doctor.verification_document_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="med-link"
+                          >
+                            View Verification Document
+                          </a>
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:min-w-56">
+                    {doctor.phone && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(doctor.phone);
+                          setMessage("Phone number copied to clipboard");
+                          setTimeout(() => setMessage(""), 2000);
+                        }}
+                        className="med-button-secondary"
+                      >
+                        Call
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={actingDoctorId === doctor.user_id}

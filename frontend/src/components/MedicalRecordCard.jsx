@@ -26,6 +26,33 @@ function formatRecordType(value) {
   return String(value).charAt(0).toUpperCase() + String(value).slice(1);
 }
 
+// Document type icons and display names from AI pipeline
+const DOCUMENT_TYPE_INFO = {
+  prescription: { icon: "💊", display: "Prescription" },
+  blood_report: { icon: "🩸", display: "Blood Report" },
+  lab_report: { icon: "🧪", display: "Lab Report" },
+  xray: { icon: "🩻", display: "X-Ray" },
+  mri: { icon: "🧠", display: "MRI" },
+  ct_scan: { icon: "🫀", display: "CT Scan" },
+  ecg_report: { icon: "❤️", display: "ECG" },
+  ultrasound_report: { icon: "�", display: "Ultrasound" },
+  medical_certificate: { icon: "📄", display: "Certificate" },
+  hospital_bill: { icon: "🧾", display: "Bill" },
+  insurance_document: { icon: "🛡", display: "Insurance" },
+  vaccination_record: { icon: "💉", display: "Vaccination" },
+  discharge_summary: { icon: "🏥", display: "Discharge Summary" },
+  referral_letter: { icon: "✉️", display: "Referral" },
+  general_medical_report: { icon: "📋", display: "Medical Report" },
+  other_medical_document: { icon: "📁", display: "Other" },
+  unknown: { icon: "❓", display: "Unknown" }
+};
+
+function getDocumentTypeInfo(documentType) {
+  if (!documentType) return DOCUMENT_TYPE_INFO.unknown;
+  const key = documentType.toLowerCase().replace(/-/g, "_");
+  return DOCUMENT_TYPE_INFO[key] || DOCUMENT_TYPE_INFO.unknown;
+}
+
 function HighlightText({ text, query }) {
   const value = String(text || "");
   const term = String(query || "").trim();
@@ -65,6 +92,11 @@ function MedicalRecordCard({
   const structured = record.ai_structured_data || {};
   const advice = structured.advice || [];
   const doctorOrHospital = structured.doctor_or_hospital || "";
+  
+  // Get document type info from AI pipeline - prioritize document_type over record_type
+  const documentType = record.document_type || structured.document_type || "unknown";
+  const docTypeInfo = getDocumentTypeInfo(documentType);
+  const confidenceScore = record.confidence_score || structured.confidence || 0;
 
   return (
     <div className="med-timeline-item">
@@ -79,11 +111,13 @@ function MedicalRecordCard({
               />
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <span className="med-chip">{formatRecordType(record.record_type)}</span>
+              <span className="med-chip">
+                {docTypeInfo.icon} {docTypeInfo.display}
+              </span>
               <span className="med-chip">{formatShortDate(record.uploaded_at)}</span>
-              {structured.classification ? (
+              {confidenceScore > 0 ? (
                 <span className="med-chip">
-                  {formatRecordType(structured.classification)}
+                  Confidence: {Math.round(confidenceScore)}%
                 </span>
               ) : null}
             </div>

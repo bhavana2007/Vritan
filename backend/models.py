@@ -106,6 +106,16 @@ class MedicalRecord(Base):
     ai_structured_data = Column(Text, nullable=True)
     confidence_score = Column(Float, nullable=True)
     ai_summary = Column(Text, nullable=True)
+    
+    # New AI pipeline fields
+    document_type = Column(String(50), nullable=True)
+    classification_confidence = Column(Float, nullable=True)
+    classification_reason = Column(Text, nullable=True)
+    ocr_quality_score = Column(Float, nullable=True)
+    processing_time = Column(Float, nullable=True)
+    ai_version = Column(String(20), nullable=True, default="v2.0")
+    schema_validation_passed = Column(Boolean, nullable=True)
+    validation_errors = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="medical_records")
 

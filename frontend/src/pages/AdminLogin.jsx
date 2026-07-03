@@ -50,13 +50,18 @@ function AdminLogin() {
     setLoading(true);
 
     try {
+      console.log("LOGIN STARTED - Attempting admin login");
       const loggedInUser = await loginAdmin(normalizedEmail, password);
-      if (loggedInUser.role !== "admin") {
+      console.log("LOGIN RESPONSE:", loggedInUser);
+      if (!loggedInUser || loggedInUser.role !== "admin") {
         throw new Error("Admin access required.");
       }
       const from = location.state?.from;
-      setPostLoginTarget(from && from.startsWith("/admin") ? from : "/admin");
+      const target = from && from.startsWith("/admin") ? from : "/admin";
+      console.log("LOGIN SUCCESS - Redirecting to:", target);
+      setPostLoginTarget(target);
     } catch (error) {
+      console.error("LOGIN FAILED:", error);
       setErrorMessage(
         error instanceof Error
           ? error.message

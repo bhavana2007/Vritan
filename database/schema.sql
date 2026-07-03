@@ -49,13 +49,24 @@ CREATE TABLE IF NOT EXISTS medical_records (
     detected_medicines TEXT NULL,
     probable_conditions TEXT NULL,
     ai_structured_data TEXT NULL,
+    confidence_score FLOAT NULL,
+    ai_summary TEXT NULL,
+    document_type VARCHAR(50) NULL,
+    classification_confidence FLOAT NULL,
+    classification_reason TEXT NULL,
+    ocr_quality_score FLOAT NULL,
+    processing_time FLOAT NULL,
+    ai_version VARCHAR(20) NULL DEFAULT 'v2.0',
+    schema_validation_passed BOOLEAN NULL,
+    validation_errors TEXT NULL,
     CONSTRAINT fk_medical_records_patient_id
         FOREIGN KEY (patient_id) REFERENCES patients(id)
         ON DELETE CASCADE,
     CONSTRAINT fk_medical_records_uploaded_by
         FOREIGN KEY (uploaded_by) REFERENCES users(id)
         ON DELETE CASCADE,
-    INDEX idx_medical_records_patient_id (patient_id)
+    INDEX idx_medical_records_patient_id (patient_id),
+    INDEX idx_medical_records_document_type (document_type)
 );
 
 CREATE TABLE IF NOT EXISTS access_requests (

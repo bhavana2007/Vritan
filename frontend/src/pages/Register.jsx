@@ -39,6 +39,13 @@ function Register() {
   const [submitting, setSubmitting] = useState(false);
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
+  // Doctor verification fields
+  const [doctorPhone, setDoctorPhone] = useState("");
+  const [medicalLicenseNumber, setMedicalLicenseNumber] = useState("");
+  const [yearsOfExperience, setYearsOfExperience] = useState("");
+  const [specialization, setSpecialization] = useState("");
+  const [verificationDocument, setVerificationDocument] = useState(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   const navigate = useNavigate();
 
@@ -177,12 +184,34 @@ function Register() {
       setErrorMessage("Please choose a stronger password that satisfies every rule.");
       return null;
     }
+    const phoneDigits = normalizeMobileDigits(doctorPhone);
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+      setErrorMessage("Please enter a valid phone number with 10 to 15 digits.");
+      return null;
+    }
+    if (!medicalLicenseNumber.trim()) {
+      setErrorMessage("Medical license number is required.");
+      return null;
+    }
+    const experience = Number(yearsOfExperience);
+    if (isNaN(experience) || experience < 0 || experience > 60) {
+      setErrorMessage("Years of experience must be between 0 and 60.");
+      return null;
+    }
+    if (!verificationDocument) {
+      setErrorMessage("Verification document is required.");
+      return null;
+    }
     return {
       role,
       name: name.trim(),
       email: email.trim().toLowerCase(),
-      password,
+      phone: phoneDigits,
       hospital: hospital.trim(),
+      medical_license_number: medicalLicenseNumber.trim(),
+      years_of_experience: experience,
+      specialization: specialization.trim() || null,
+      password,
     };
   };
 
@@ -194,13 +223,39 @@ function Register() {
     try {
       setSubmitting(true);
       setErrorMessage("");
-      const response = await fetch(`${API_BASE}/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(userData),
-      });
+      
+      let response;
+      let data;
+      
+      if (role === "doctor" && verificationDocument) {
+        // For doctors, upload verification document first, then register
+        const formData = new FormData();
+        formData.append("file", verificationDocument);
+        formData.append("name", userData.name);
+        formData.append("email", userData.email);
+        formData.append("phone", userData.phone);
+        formData.append("hospital", userData.hospital);
+        formData.append("medical_license_number", userData.medical_license_number);
+        formData.append("years_of_experience", userData.years_of_experience);
+        if (userData.specialization) {
+          formData.append("specialization", userData.specialization);
+        }
+        formData.append("password", userData.password);
+        
+        response = await fetch(`${API_BASE}/register-doctor`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        // For patients
+        response = await fetch(`${API_BASE}/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(userData),
+        });
+      }
 
-      const data = await response.json().catch(() => ({}));
+      data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(parseFastApiDetail(data));
       }
@@ -425,6 +480,17 @@ function Register() {
             />
 
             <input
+              type="tel"
+              placeholder="Phone number *"
+              autoComplete="tel"
+              inputMode="numeric"
+              value={doctorPhone}
+              disabled={busy}
+              onChange={(e) => setDoctorPhone(e.target.value)}
+              className="med-input"
+            />
+
+            <input
               type="text"
               placeholder="Hospital name"
               value={hospital}
@@ -432,6 +498,69 @@ function Register() {
               onChange={(e) => setHospital(e.target.value)}
               className="med-input"
             />
+
+            <input
+              type="text"
+              placeholder="Medical License Number *"
+              value={medicalLicenseNumber}
+              disabled={busy}
+              onChange={(e) => setMedicalLicenseNumber(e.target.value)}
+              className="med-input"
+            />
+
+            <input
+              type="text"
+              placeholder="Specialization (optional)"
+              value={specialization}
+              disabled={busy}
+              onChange={(e) => setSpecialization(e.target.value)}
+              className="med-input"
+            />
+
+            <input
+              type="number"
+              placeholder="Years of Experience *"
+              inputMode="numeric"
+              min="0"
+              max="60"
+              value={yearsOfExperience}
+              disabled={busy}
+              onChange={(e) => setYearsOfExperience(e.target.value)}
+              className="med-input"
+            />
+
+            <div>
+              <label className="block text-sm med-muted mb-2">
+                Verification Document * (PDF, JPG, JPEG, PNG)
+              </label>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                disabled={busy}
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const validTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+                    if (!validTypes.includes(file.type)) {
+                      setErrorMessage("Please upload a PDF, JPG, JPEG, or PNG file.");
+                      return;
+                    }
+                    if (file.size > 10 * 1024 * 1024) {
+                      setErrorMessage("File size must be less than 10MB.");
+                      return;
+                    }
+                    setVerificationDocument(file);
+                    setErrorMessage("");
+                  }
+                }}
+                className="med-input"
+              />
+              {verificationDocument && (
+                <p className="mt-1 text-sm med-muted">
+                  Selected: {verificationDocument.name}
+                </p>
+              )}
+            </div>
 
             <input
               type="password"
@@ -460,7 +589,7 @@ function Register() {
               disabled={busy}
               className="med-button w-full"
             >
-              {submitting ? "Saving..." : "Register Doctor"}
+              {submitting ? "Submitting..." : "Submit for Verification"}
             </button>
           </div>
         )}
@@ -489,3 +618,4 @@ function Register() {
 }
 
 export default Register;
+[]

@@ -24,6 +24,10 @@ def _public_admin(admin: Admin) -> UserPublic:
         name="Admin",
         email=admin.email,
         is_verified=bool(admin.is_active),
+        patient_uid="",
+        mobile="",
+        hospital="",
+        verification_status="approved",
     )
 
 
@@ -99,10 +103,15 @@ def admin_doctors(
     db: Session = Depends(get_db),
 ):
     del current_admin
+    print(f"ADMIN DOCTORS - Querying Doctor table with status_filter: {status_filter}")
     query = db.query(Doctor)
     if status_filter != "all":
         query = query.filter(Doctor.verification_status == status_filter)
-    return query.order_by(Doctor.created_at.desc(), Doctor.user_id.desc()).all()
+    doctors = query.order_by(Doctor.created_at.desc(), Doctor.user_id.desc()).all()
+    print(f"ADMIN DOCTORS - Found {len(doctors)} doctors")
+    for doc in doctors:
+        print(f"  - Doctor: {doc.full_name}, email: {doc.email}, user_id: {doc.user_id}, status: {doc.verification_status}")
+    return doctors
 
 
 @router.post("/doctors/{doctor_user_id}/approve", response_model=AdminDoctorPublic)
