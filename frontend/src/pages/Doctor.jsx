@@ -313,6 +313,18 @@ function Doctor() {
           Doctor Dashboard
         </h1>
 
+        <section className="mb-8 med-card p-5 sm:p-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => navigate("/doctor/prescriptions")}
+              className="med-button"
+            >
+              Prescription Management
+            </button>
+          </div>
+        </section>
+
         {profileError ? (
           <div className="mb-8 med-alert med-alert-danger text-center">
             {profileError}

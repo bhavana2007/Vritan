@@ -95,3 +95,98 @@ CREATE TABLE IF NOT EXISTS admins (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     INDEX idx_admins_email (email)
 );
+
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS allergies TEXT NULL;
+ALTER TABLE doctors ADD COLUMN IF NOT EXISTS signature_image_url VARCHAR(255) NULL;
+
+CREATE TABLE IF NOT EXISTS medicines_master (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    generic_name VARCHAR(255) NULL,
+    brand_name VARCHAR(255) NULL,
+    default_strength VARCHAR(100) NULL,
+    default_unit VARCHAR(50) NULL,
+    default_route VARCHAR(100) NULL,
+    INDEX idx_medicines_master_name (name)
+);
+
+CREATE TABLE IF NOT EXISTS prescriptions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    prescription_id VARCHAR(50) NOT NULL UNIQUE,
+    doctor_id INT NOT NULL,
+    patient_id INT NOT NULL,
+    chief_complaint TEXT NULL,
+    clinical_findings TEXT NULL,
+    diagnosis TEXT NOT NULL,
+    symptoms TEXT NOT NULL,
+    doctor_advice TEXT NULL,
+    lifestyle_recommendations TEXT NULL,
+    follow_up_notes TEXT NULL,
+    follow_up_date DATE NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    vitals_blood_pressure VARCHAR(50) NULL,
+    vitals_heart_rate INT NULL,
+    vitals_temperature FLOAT NULL,
+    vitals_sp02 INT NULL,
+    vitals_height FLOAT NULL,
+    vitals_weight FLOAT NULL,
+    vitals_bmi FLOAT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by INT NOT NULL,
+    updated_by INT NULL,
+    deleted_at TIMESTAMP NULL,
+    deleted_by INT NULL,
+    CONSTRAINT fk_prescriptions_doctor_id FOREIGN KEY (doctor_id) REFERENCES doctors(user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_prescriptions_patient_id FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+    CONSTRAINT fk_prescriptions_created_by FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT fk_prescriptions_updated_by FOREIGN KEY (updated_by) REFERENCES users(id),
+    CONSTRAINT fk_prescriptions_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id),
+    INDEX idx_prescriptions_prescription_id (prescription_id),
+    INDEX idx_prescriptions_doctor_id (doctor_id),
+    INDEX idx_prescriptions_patient_id (patient_id),
+    INDEX idx_prescriptions_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS prescription_medicines (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    prescription_id INT NOT NULL,
+    medicine_name VARCHAR(255) NOT NULL,
+    strength VARCHAR(100) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
+    quantity INT NOT NULL,
+    route VARCHAR(100) NOT NULL,
+    frequency VARCHAR(100) NOT NULL,
+    duration VARCHAR(100) NOT NULL,
+    food_instruction VARCHAR(100) NOT NULL,
+    special_instruction TEXT NULL,
+    CONSTRAINT fk_prescription_medicines_presc_id FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE,
+    INDEX idx_prescription_medicines_presc_id (prescription_id)
+);
+
+CREATE TABLE IF NOT EXISTS prescription_activities (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    prescription_id INT NOT NULL,
+    activity_type VARCHAR(50) NOT NULL,
+    description TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    actor_id INT NOT NULL,
+    actor_role VARCHAR(50) NOT NULL,
+    actor_name VARCHAR(100) NOT NULL,
+    CONSTRAINT fk_prescription_activities_presc_id FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_prescription_activities_actor_id FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_prescription_activities_presc_id (prescription_id)
+);
+
+CREATE TABLE IF NOT EXISTS prescription_audit_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    prescription_id INT NOT NULL,
+    field_name VARCHAR(100) NOT NULL,
+    old_value TEXT NULL,
+    new_value TEXT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    editor_id INT NOT NULL,
+    CONSTRAINT fk_prescription_audit_logs_presc_id FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_prescription_audit_logs_editor_id FOREIGN KEY (editor_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_prescription_audit_logs_presc_id (prescription_id)
+);

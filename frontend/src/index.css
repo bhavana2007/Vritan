@@ -430,3 +430,36 @@ textarea {
 .med-file-button:hover {
   background: #daf6f4;
 }
+
+/* Print styles for prescriptions */
+@media print {
+  .med-topbar,
+  .med-button,
+  .med-button-secondary,
+  .med-button-danger,
+  .med-button-success {
+    display: none !important;
+  }
+
+  .med-page {
+    background: white !important;
+  }
+
+  .med-shell {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .med-card {
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+  }
+
+  .prescription-print-container {
+    padding: 0 !important;
+  }
+
+  body {
+    background: white !important;
+  }
+}

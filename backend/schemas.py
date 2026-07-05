@@ -278,6 +278,7 @@ class DoctorProfile(BaseModel):
 
 
 class PatientSearchResult(BaseModel):
+    id :int
     full_name: str = ""
     patient_uid: str = ""
     blood_group: str | None = None
@@ -347,3 +348,127 @@ class DoctorAccessRequestResponse(BaseModel):
     status: str
     message: str
     expires_at: datetime | None = None
+
+
+# Prescription Schemas
+class PrescriptionMedicineCreate(BaseModel):
+    medicine_name: str = Field(..., min_length=1)
+    dosage: str = Field(..., min_length=1)
+    frequency: str = Field(..., min_length=1)
+    duration: str = Field(..., min_length=1)
+    food_instruction: str = Field(..., min_length=1)
+    special_instruction: str | None = None
+
+
+class PrescriptionMedicineResponse(BaseModel):
+    id: int
+    medicine_name: str
+    dosage: str
+    frequency: str
+    duration: str
+    food_instruction: str
+    special_instruction: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class PrescriptionCreate(BaseModel):
+    patient_id: int = Field(..., gt=0)
+    diagnosis: str = Field(..., min_length=1)
+    symptoms: str = Field(..., min_length=1)
+    medicines: list[PrescriptionMedicineCreate] = Field(..., min_length=1)
+    notes: str | None = None
+    follow_up_date: date | None = None
+
+
+class PrescriptionUpdate(BaseModel):
+    diagnosis: str | None = None
+    symptoms: str | None = None
+    medicines: list[PrescriptionMedicineCreate] | None = None
+    notes: str | None = None
+    follow_up_date: date | None = None
+
+
+class PrescriptionResponse(BaseModel):
+    id: int
+    prescription_id: str
+    doctor_id: int
+    patient_id: int
+    diagnosis: str
+    symptoms: str
+    notes: str | None = None
+    follow_up_date: date | None = None
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: int
+    updated_by: int | None = None
+    deleted_at: datetime | None = None
+    deleted_by: int | None = None
+    medicines: list[PrescriptionMedicineResponse] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class PrescriptionListResponse(BaseModel):
+    id: int
+    prescription_id: str
+    doctor_id: int
+    patient_id: int
+    diagnosis: str
+    symptoms: str
+    status: str
+    created_at: datetime | None = None
+    follow_up_date: date | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class PrescriptionDetailResponse(BaseModel):
+    id: int
+    prescription_id: str
+    doctor_id: int
+    patient_id: int
+    diagnosis: str
+    symptoms: str
+    notes: str | None = None
+    follow_up_date: date | None = None
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: int
+    updated_by: int | None = None
+    deleted_at: datetime | None = None
+    deleted_by: int | None = None
+    medicines: list[PrescriptionMedicineResponse] = Field(default_factory=list)
+    doctor_name: str = ""
+    doctor_specialization: str | None = None
+    doctor_hospital: str = ""
+    doctor_phone: str = ""
+    doctor_signature_url: str | None = None
+    patient_name: str = ""
+    patient_uid: str = ""
+
+    model_config = {"from_attributes": True}
+
+
+class PrescriptionActivityResponse(BaseModel):
+    id: int
+    activity_type: str
+    description: str
+    timestamp: datetime | None = None
+    actor_name: str
+    actor_role: str
+
+    model_config = {"from_attributes": True}
+
+
+class PrescriptionAuditLogResponse(BaseModel):
+    id: int
+    field_name: str
+    old_value: str | None = None
+    new_value: str | None = None
+    timestamp: datetime | None = None
+    editor_id: int
+
+    model_config = {"from_attributes": True}

@@ -500,6 +500,18 @@ function Dashboard() {
           </h1>
 
           <section className="mb-8 med-card p-5 sm:p-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard/prescriptions")}
+                className="med-button"
+              >
+                View My Prescriptions
+              </button>
+            </div>
+          </section>
+
+          <section className="mb-8 med-card p-5 sm:p-6">
             <div className="mb-5">
               <h2 className="text-2xl font-semibold med-title">Patient Details</h2>
               <p className="mt-1 text-sm med-muted">
