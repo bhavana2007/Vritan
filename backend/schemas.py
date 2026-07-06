@@ -350,6 +350,39 @@ class DoctorAccessRequestResponse(BaseModel):
     expires_at: datetime | None = None
 
 
+class DoctorDashboardStats(BaseModel):
+    total_patients: int = 0
+    prescriptions_today: int = 0
+    pending_access_requests: int = 0
+    active_approved_patients: int = 0
+
+
+class MedicineSearchResult(BaseModel):
+    id: int
+    name: str
+    generic_name: str | None = None
+    brand_name: str | None = None
+    aliases: str | None = None
+    dosage_form: str | None = None
+    strength: str | None = None
+    unit: str | None = None
+    route: str | None = None
+    manufacturer: str | None = None
+    source: str | None = None
+    source_id: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class MedicineValidationResponse(BaseModel):
+    input: str
+    is_valid: bool
+    corrected_name: str | None = None
+    confidence: float = 0
+    match_type: str = "none"
+    medicine: MedicineSearchResult | None = None
+
+
 # Prescription Schemas
 class PrescriptionMedicineCreate(BaseModel):
     medicine_name: str = Field(..., min_length=1)
@@ -358,6 +391,27 @@ class PrescriptionMedicineCreate(BaseModel):
     duration: str = Field(..., min_length=1)
     food_instruction: str = Field(..., min_length=1)
     special_instruction: str | None = None
+
+    @field_validator(
+        "medicine_name",
+        "dosage",
+        "frequency",
+        "duration",
+        "food_instruction",
+        mode="before",
+    )
+    @classmethod
+    def strip_required_text(cls, value):
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            raise ValueError("This field is required")
+        return cleaned
+
+    @field_validator("special_instruction", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value):
+        cleaned = str(value or "").strip()
+        return cleaned or None
 
 
 class PrescriptionMedicineResponse(BaseModel):

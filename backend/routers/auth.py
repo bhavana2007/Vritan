@@ -1,5 +1,6 @@
 """Registration and login endpoints."""
 import json
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AccessRequest, Admin, Doctor, MedicalRecord, Patient, User as UserModel
+from models import AccessRequest, Admin, Doctor, MedicalRecord, Patient, Prescription, User as UserModel
 from schemas import AccessRequestPublic
 from schemas import DoctorAccessRequestResponse, DoctorProfile
 from schemas import DoctorResetOtpRequest, DoctorResetPasswordRequest
@@ -21,6 +22,7 @@ from schemas import DoctorVerifyResetOtpRequest, LoginResponse, MedicalRecordPub
 from schemas import PatientOtpLoginRequest, PatientProfile, PatientSearchResult
 from schemas import SendOtpRequest, UserLogin, UserPublic, AdminDoctorPublic
 from schemas import UserRegister, VerifyOtpRequest
+from schemas import DoctorDashboardStats
 from security import InvalidTokenError, create_access_token, decode_access_token
 from security import hash_password, verify_password
 from services.gemini_service import structure_medical_text
@@ -541,7 +543,10 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     print(f"Development OTP for patient mobile {payload.mobile}: {otp}")
     print(f"UPLOAD STARTED")
 
-    return {"message": "OTP sent successfully"}
+    response = {"message": "OTP sent successfully"}
+    if os.getenv("APP_ENV", "development").lower() != "production":
+        response["dev_otp"] = otp
+    return response
 
 
 @router.post("/verify-otp")
@@ -672,6 +677,9 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
 
         return {"message": f"{payload.role} registered successfully"}
     
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -975,6 +983,65 @@ def doctor_me(current_user: UserModel = Depends(_current_user_from_token)):
     return _require_current_doctor(current_user)
 
 
+@router.get("/doctor/dashboard-stats", response_model=DoctorDashboardStats)
+def doctor_dashboard_stats(
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    """Get dashboard statistics for the current doctor."""
+    doctor = _require_verified_doctor(current_user)
+    
+    # Total patients (unique patients the doctor has interacted with via access requests)
+    total_patients = (
+        db.query(AccessRequest.patient_id)
+        .filter(AccessRequest.doctor_id == doctor.user_id)
+        .distinct()
+        .count()
+    )
+    
+    # Prescriptions today
+    from datetime import date
+    today = date.today()
+    prescriptions_today = (
+        db.query(Prescription)
+        .filter(
+            Prescription.doctor_id == doctor.user_id,
+            func.date(Prescription.created_at) == today
+        )
+        .count()
+    )
+    
+    # Pending access requests
+    pending_access_requests = (
+        db.query(AccessRequest)
+        .filter(
+            AccessRequest.doctor_id == doctor.user_id,
+            AccessRequest.status == "pending"
+        )
+        .count()
+    )
+    
+    # Active approved patients (with non-expired approved access)
+    _expire_access_requests(db)
+    active_approved_patients = (
+        db.query(AccessRequest.patient_id)
+        .filter(
+            AccessRequest.doctor_id == doctor.user_id,
+            AccessRequest.status == "approved",
+            AccessRequest.expires_at > _now_utc()
+        )
+        .distinct()
+        .count()
+    )
+    
+    return DoctorDashboardStats(
+        total_patients=total_patients,
+        prescriptions_today=prescriptions_today,
+        pending_access_requests=pending_access_requests,
+        active_approved_patients=active_approved_patients,
+    )
+
+
 def _require_admin(current_user: UserModel | Admin) -> Admin:
     # Handle direct Admin object (from updated _current_user_from_token)
     if isinstance(current_user, Admin):
@@ -1136,6 +1203,26 @@ def doctor_patient_search(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No patient found for this Patient ID",
+        )
+    return patient
+
+
+@router.get("/doctor/patient-by-id/{patient_id}", response_model=PatientSearchResult)
+def doctor_patient_by_id(
+    patient_id: int,
+    current_user: UserModel = Depends(_current_user_from_token),
+    db: Session = Depends(get_db),
+):
+    _require_verified_doctor(current_user)
+    patient = (
+        db.query(Patient)
+        .filter(Patient.id == patient_id)
+        .first()
+    )
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No patient found for this ID",
         )
     return patient
 
