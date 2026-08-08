@@ -21,30 +21,24 @@ function formatShortDate(value) {
   });
 }
 
-function formatRecordType(value) {
-  if (!value) return "Other";
-  return String(value).charAt(0).toUpperCase() + String(value).slice(1);
-}
-
-// Document type icons and display names from AI pipeline
 const DOCUMENT_TYPE_INFO = {
-  prescription: { icon: "💊", display: "Prescription" },
-  blood_report: { icon: "🩸", display: "Blood Report" },
-  lab_report: { icon: "🧪", display: "Lab Report" },
-  xray: { icon: "🩻", display: "X-Ray" },
-  mri: { icon: "🧠", display: "MRI" },
-  ct_scan: { icon: "🫀", display: "CT Scan" },
-  ecg_report: { icon: "❤️", display: "ECG" },
-  ultrasound_report: { icon: "�", display: "Ultrasound" },
-  medical_certificate: { icon: "📄", display: "Certificate" },
-  hospital_bill: { icon: "🧾", display: "Bill" },
-  insurance_document: { icon: "🛡", display: "Insurance" },
-  vaccination_record: { icon: "💉", display: "Vaccination" },
-  discharge_summary: { icon: "🏥", display: "Discharge Summary" },
-  referral_letter: { icon: "✉️", display: "Referral" },
-  general_medical_report: { icon: "📋", display: "Medical Report" },
-  other_medical_document: { icon: "📁", display: "Other" },
-  unknown: { icon: "❓", display: "Unknown" }
+  prescription: { label: "Rx", display: "Prescription" },
+  blood_report: { label: "Lab", display: "Blood Report" },
+  lab_report: { label: "Lab", display: "Lab Report" },
+  xray: { label: "XR", display: "X-Ray" },
+  mri: { label: "MRI", display: "MRI" },
+  ct_scan: { label: "CT", display: "CT Scan" },
+  ecg_report: { label: "ECG", display: "ECG" },
+  ultrasound_report: { label: "US", display: "Ultrasound" },
+  medical_certificate: { label: "Cert", display: "Certificate" },
+  hospital_bill: { label: "Bill", display: "Bill" },
+  insurance_document: { label: "Ins", display: "Insurance" },
+  vaccination_record: { label: "Vax", display: "Vaccination" },
+  discharge_summary: { label: "Disc", display: "Discharge Summary" },
+  referral_letter: { label: "Ref", display: "Referral" },
+  general_medical_report: { label: "Med", display: "Medical Report" },
+  other_medical_document: { label: "Doc", display: "Other" },
+  unknown: { label: "Doc", display: "Unknown" },
 };
 
 function getDocumentTypeInfo(documentType) {
@@ -89,14 +83,37 @@ function MedicalRecordCard({
   deleting = false,
   showDelete = false,
 }) {
-  const structured = record.ai_structured_data || {};
-  const advice = structured.advice || [];
-  const doctorOrHospital = structured.doctor_or_hospital || "";
-  
-  // Get document type info from AI pipeline - prioritize document_type over record_type
-  const documentType = record.document_type || structured.document_type || "unknown";
+  if (!record) return null;
+
+  let structured = {};
+  if (record.ai_structured_data) {
+    if (typeof record.ai_structured_data === "object") {
+      structured = record.ai_structured_data;
+    } else if (typeof record.ai_structured_data === "string") {
+      try {
+        structured = JSON.parse(record.ai_structured_data) || {};
+      } catch (e) {
+        structured = {};
+      }
+    }
+  }
+
+  const doctorOrHospital = structured?.doctor_or_hospital || "";
+  const documentType = record?.document_type || structured?.document_type || "unknown";
   const docTypeInfo = getDocumentTypeInfo(documentType);
-  const confidenceScore = record.confidence_score || structured.confidence || 0;
+  const confidenceScore = record?.confidence_score || structured?.confidence || 0;
+
+  const medicines = Array.isArray(record?.detected_medicines)
+    ? record.detected_medicines
+    : (typeof record?.detected_medicines === "string"
+      ? (() => { try { const parsed = JSON.parse(record.detected_medicines); return Array.isArray(parsed) ? parsed : []; } catch (e) { return []; } })()
+      : []);
+
+  const conditions = Array.isArray(record?.probable_conditions)
+    ? record.probable_conditions
+    : (typeof record?.probable_conditions === "string"
+      ? (() => { try { const parsed = JSON.parse(record.probable_conditions); return Array.isArray(parsed) ? parsed : []; } catch (e) { return []; } })()
+      : []);
 
   return (
     <div className="med-timeline-item">
@@ -112,7 +129,7 @@ function MedicalRecordCard({
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <span className="med-chip">
-                {docTypeInfo.icon} {docTypeInfo.display}
+                {docTypeInfo.label} - {docTypeInfo.display}
               </span>
               <span className="med-chip">{formatShortDate(record.uploaded_at)}</span>
               {confidenceScore > 0 ? (
@@ -127,29 +144,32 @@ function MedicalRecordCard({
 
         <InfoSection label="Doctor/Hospital">
           <p className="mt-1 text-sm med-muted">
-            <HighlightText text={doctorOrHospital || structured.doctor_or_hospital || "Not detected"} query={searchQuery} />
+            <HighlightText
+              text={doctorOrHospital || "Not detected"}
+              query={searchQuery}
+            />
           </p>
         </InfoSection>
 
-        {record.detected_medicines?.length ? (
+        {medicines && medicines.length > 0 ? (
           <InfoSection label="Medicines">
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {record.detected_medicines.map((medicine, index) => (
-                <div key={`${record.id}-medicine-${index}`} className="med-mini-card">
+              {medicines.map((medicine, index) => (
+                <div key={`${record.id || index}-medicine-${index}`} className="med-mini-card">
                   <p className="font-semibold text-teal-800">
-                    <HighlightText text={medicine.name} query={searchQuery} />
+                    <HighlightText text={medicine?.name || ""} query={searchQuery} />
                   </p>
-                  {medicine.dosage ? (
+                  {medicine?.dosage ? (
                     <p className="text-sm med-muted">
                       Dosage: <HighlightText text={medicine.dosage} query={searchQuery} />
                     </p>
                   ) : null}
-                  {medicine.duration ? (
+                  {medicine?.duration ? (
                     <p className="text-sm med-muted">
                       Duration: <HighlightText text={medicine.duration} query={searchQuery} />
                     </p>
                   ) : null}
-                  {medicine.instructions ? (
+                  {medicine?.instructions ? (
                     <p className="text-sm med-muted">
                       Instructions: <HighlightText text={medicine.instructions} query={searchQuery} />
                     </p>
@@ -162,11 +182,14 @@ function MedicalRecordCard({
 
         <InfoSection label="Possible Related Conditions">
           <div className="mt-2 flex flex-wrap gap-2">
-            {record.probable_conditions?.length ? (
-              record.probable_conditions.map((condition, index) => {
-                const conditionText = typeof condition === 'string' ? condition : (condition?.condition || 'Unknown');
+            {conditions && conditions.length > 0 ? (
+              conditions.map((condition, index) => {
+                const conditionText =
+                  typeof condition === "string"
+                    ? condition
+                    : condition?.condition || "Unknown";
                 return (
-                  <span key={`${record.id}-condition-${index}`} className="med-chip">
+                  <span key={`${record.id || index}-condition-${index}`} className="med-chip">
                     <HighlightText text={conditionText} query={searchQuery} />
                   </span>
                 );
@@ -181,6 +204,14 @@ function MedicalRecordCard({
           <InfoSection label="Patient Notes">
             <p className="mt-1 text-sm med-muted">
               <HighlightText text={record.notes} query={searchQuery} />
+            </p>
+          </InfoSection>
+        ) : null}
+
+        {record.ai_summary || structured.ai_summary ? (
+          <InfoSection label="AI Summary">
+            <p className="mt-1 text-sm med-muted italic bg-slate-50 p-2 rounded border border-slate-100">
+              <HighlightText text={record.ai_summary || structured.ai_summary} query={searchQuery} />
             </p>
           </InfoSection>
         ) : null}
