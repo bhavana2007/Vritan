@@ -516,17 +516,6 @@ FIREBASE_CONFIG=your_firebase_configuration
 
 ---
 
-# 👥 Team
-
-VRITAN is developed as a collaborative project with responsibilities across:
-
-- Frontend Development
-- Backend Development
-- Database Management
-- AI/OCR Integration
-
----
-
 # ⚠️ Disclaimer
 
 VRITAN is a software project developed for educational, research, and demonstration purposes.
