@@ -1,0 +1,27 @@
+# MediLocker backend: pip install -r requirements.txt (from this folder, venv activated)
+# IMPORTANT: Install "PyJWT" (pip name). Your code does "import jwt".
+# Do NOT use: pip install jwt  (different project, wrong library)
+
+# HTTP API
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.32.0,<1
+requests>=2.31.0,<3
+python-dotenv>=1.0.0,<2
+
+# Multipart bodies (forms / file uploads later)
+python-multipart>=0.0.9
+
+# Database
+sqlalchemy>=2.0.0,<3
+pymysql>=1.1.0
+
+# Pydantic EmailStr needs email-validator installed
+pydantic>=2.0.0,<3
+email-validator>=2.0.0
+
+# Hashing: passlib bcrypt backend uses the bcrypt PyPI package
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.0,<5
+
+# PyPI package name is PyJWT; import in code is: import jwt
+PyJWT>=2.8.0,<3
