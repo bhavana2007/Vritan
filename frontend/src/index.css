@@ -4,38 +4,139 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  color: #16313b;
-  background: #f4fbfb;
+  color: #0F172A;
+  background: #F8FAFC;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --med-teal: #0f8f8a;
-  --med-teal-dark: #08706e;
-  --med-cyan: #39b8d4;
-  --med-aqua: #a9edf0;
-  --med-mint: #e5fbf8;
-  --med-bg: #f4fbfb;
-  --med-surface: #ffffff;
-  --med-border: #cfe9e8;
-  --med-text: #16313b;
-  --med-muted: #5f7480;
-  --med-danger: #b42318;
-  --med-danger-bg: #fff1f0;
-  --med-warning: #976a16;
-  --med-warning-bg: #fff8e6;
-  --med-success: #12785f;
-  --med-success-bg: #e9fbf4;
-  --med-shadow: 0 18px 45px -28px rgba(8, 112, 110, 0.42);
+  color-scheme: light;
+
+  /* VRITAN enterprise healthcare design tokens */
+  --color-bg-base: #F8FAFC;
+  --color-bg-elevated: #F1F5F9;
+  --color-card-bg: #FFFFFF;
+  --color-card-bg-soft: #F8FAFC;
+  --color-primary-blue: #2563EB;
+  --color-primary-green: #16A34A;
+  --color-accent-teal: #0F9D8A;
+  --color-secondary-emerald: #16A34A;
+  --color-status-success: #22C55E;
+  --color-status-warning: #F59E0B;
+  --color-status-danger: #EF4444;
+  --color-border-base: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-text-muted: #94A3B8;
+  --color-hover-bg: #EFF6FF;
+  --shadow-card: 0 14px 34px -26px rgba(15, 23, 42, 0.22);
+  --shadow-elevated: 0 24px 60px -36px rgba(15, 23, 42, 0.28);
+  --radius-card: 1rem;
+  --radius-control: 0.75rem;
+  --med-teal: var(--color-accent-teal);
+  --med-teal-dark: #0B7667;
+  --med-cyan: var(--color-primary-blue);
+  --med-aqua: #D9FBEA;
+  --med-mint: #ECFDF5;
+  --med-bg: var(--color-bg-base);
+  --med-surface: var(--color-card-bg);
+  --med-border: var(--color-border-base);
+  --med-text: var(--color-text-primary);
+  --med-muted: var(--color-text-secondary);
+  --med-danger: var(--color-status-danger);
+  --med-danger-bg: rgba(239, 68, 68, 0.12);
+  --med-warning: var(--color-status-warning);
+  --med-warning-bg: rgba(245, 158, 11, 0.12);
+  --med-success: var(--color-status-success);
+  --med-success-bg: rgba(16, 185, 129, 0.12);
+  --med-shadow: var(--shadow-card);
+}
+
+html {
+  background: var(--color-bg-base);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(169, 237, 240, 0.42), transparent 34rem),
-    linear-gradient(180deg, #f7fdfd 0%, #eefafa 45%, #ffffff 100%);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
 }
+
+/* Motion System Presets */
+@media (prefers-reduced-motion: no-preference) {
+  .animate-fade-up {
+    animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-slide-left {
+    animation: slideLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-slide-right {
+    animation: slideRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .hover-scale {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+  }
+  .hover-scale:hover {
+    transform: scale(1.02);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideLeft {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideRight {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* WCAG 2.1 AA focus rings */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-primary-blue);
+  outline-offset: 2px;
+}
+
 
 button,
 input,
@@ -46,9 +147,7 @@ textarea {
 
 .med-page {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 12% 0%, rgba(57, 184, 212, 0.14), transparent 28rem),
-    linear-gradient(180deg, #f7fdfd 0%, #eefafa 52%, #ffffff 100%);
+  background: var(--color-bg-base);
   color: var(--med-text);
 }
 
@@ -58,10 +157,7 @@ textarea {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background:
-    radial-gradient(circle at 20% 5%, rgba(57, 184, 212, 0.18), transparent 26rem),
-    radial-gradient(circle at 90% 25%, rgba(169, 237, 240, 0.25), transparent 22rem),
-    linear-gradient(180deg, #f8fdfc 0%, #edfafa 62%, #ffffff 100%);
+  background: var(--color-bg-base);
 }
 
 .med-shell {
@@ -79,14 +175,14 @@ textarea {
 
 .med-card {
   border: 1px solid rgba(207, 233, 232, 0.9);
-  border-radius: 1.25rem;
+  border-radius: 0.5rem;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: var(--med-shadow);
 }
 
 .med-card-compact {
   border: 1px solid rgba(207, 233, 232, 0.9);
-  border-radius: 1rem;
+  border-radius: 0.5rem;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 14px 34px -28px rgba(8, 112, 110, 0.45);
 }
@@ -97,6 +193,8 @@ textarea {
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(207, 233, 232, 0.75);
+  padding-bottom: 1rem;
 }
 
 .med-brand {
@@ -127,7 +225,7 @@ textarea {
   min-height: 3rem;
   width: 100%;
   border: 1px solid var(--med-border);
-  border-radius: 0.875rem;
+  border-radius: 0.5rem;
   background: #f8fdfd;
   padding: 0.75rem 1rem;
   color: var(--med-text);
@@ -155,8 +253,8 @@ textarea {
 
 .med-button {
   min-height: 3rem;
-  border-radius: 0.875rem;
-  background: linear-gradient(135deg, var(--med-teal), var(--med-cyan));
+  border-radius: 0.5rem;
+  background: var(--color-primary-green);
   padding: 0.75rem 1.25rem;
   color: #ffffff;
   font-weight: 700;
@@ -187,7 +285,7 @@ textarea {
 .med-button-secondary {
   min-height: 3rem;
   border: 1px solid var(--med-border);
-  border-radius: 0.875rem;
+  border-radius: 0.5rem;
   background: #ffffff;
   padding: 0.75rem 1.25rem;
   color: var(--med-teal-dark);
@@ -205,8 +303,8 @@ textarea {
 
 .med-button-success {
   min-height: 3rem;
-  border-radius: 0.875rem;
-  background: linear-gradient(135deg, #149b7f, #27c4a8);
+  border-radius: 0.5rem;
+  background: var(--color-primary-green);
   padding: 0.75rem 1.25rem;
   color: #ffffff;
   font-weight: 700;
@@ -215,7 +313,7 @@ textarea {
 .med-button-danger {
   min-height: 3rem;
   border: 1px solid #fecaca;
-  border-radius: 0.875rem;
+  border-radius: 0.5rem;
   background: #ffffff;
   padding: 0.75rem 1.25rem;
   color: var(--med-danger);
@@ -240,14 +338,14 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.35rem;
   border: 1px solid var(--med-border);
-  border-radius: 1rem;
+  border-radius: 0.5rem;
   background: #edfafa;
   padding: 0.25rem;
 }
 
 .med-segment-button {
   min-height: 3rem;
-  border-radius: 0.75rem;
+  border-radius: 0.375rem;
   color: var(--med-muted);
   font-weight: 700;
 }
@@ -259,7 +357,7 @@ textarea {
 }
 
 .med-alert {
-  border-radius: 0.875rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--med-border);
   padding: 0.85rem 1rem;
   font-size: 0.925rem;
@@ -291,8 +389,8 @@ textarea {
 
 .med-detail-card {
   border: 1px solid var(--med-border);
-  border-radius: 1rem;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fdfd 100%);
+  border-radius: 0.5rem;
+  background: #f8fdfd;
   padding: 1rem;
 }
 
@@ -325,7 +423,7 @@ textarea {
 
 .med-mini-card {
   border: 1px solid #d7eeee;
-  border-radius: 0.875rem;
+  border-radius: 0.5rem;
   background: #ffffff;
   padding: 0.8rem;
 }
@@ -349,7 +447,7 @@ textarea {
   left: 0.35rem;
   top: 3rem;
   width: 2px;
-  background: linear-gradient(180deg, #39b8d4, rgba(57, 184, 212, 0.08));
+  background: #BFDBFE;
 }
 
 .med-timeline-item {
@@ -395,7 +493,7 @@ textarea {
   max-height: 92vh;
   overflow: hidden;
   border: 1px solid var(--med-border);
-  border-radius: 1.25rem;
+  border-radius: 0.5rem;
   background: #ffffff;
   box-shadow: 0 26px 70px -36px rgba(8, 112, 110, 0.7);
 }
@@ -418,7 +516,7 @@ textarea {
   cursor: pointer;
   align-items: center;
   justify-content: center;
-  border-radius: 0.875rem;
+  border-radius: 0.5rem;
   background: #e9fbf8;
   padding: 0.75rem 1rem;
   text-align: center;
@@ -427,8 +525,306 @@ textarea {
   transition: background 160ms ease;
 }
 
+.med-suggestion-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 30;
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--med-border);
+  border-radius: 0.5rem;
+  background: #ffffff;
+  box-shadow: 0 20px 44px -28px rgba(8, 112, 110, 0.55);
+}
+
+.med-suggestion-item {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  color: var(--med-text);
+}
+
+.med-suggestion-item:hover,
+.med-suggestion-item:focus {
+  background: #eefafa;
+  outline: none;
+}
+
+.med-empty-state {
+  border: 1px dashed #b9e8f1;
+  border-radius: 0.5rem;
+  background: #f8fdfd;
+  padding: 1.25rem;
+  color: var(--med-muted);
+  text-align: center;
+}
+
+.med-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.med-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
+  animation: med-shimmer 1.2s infinite;
+}
+
+@keyframes med-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+table {
+  border-spacing: 0;
+}
+
 .med-file-button:hover {
   background: #daf6f4;
+}
+
+/* Enterprise compatibility layer for legacy utility-heavy portal screens. */
+#root {
+  min-height: 100vh;
+  background: var(--color-bg-base);
+}
+
+.med-page,
+.med-auth-page,
+.bg-slate-50,
+.bg-slate-100,
+.bg-gray-50,
+.bg-gray-100 {
+  background: var(--color-bg-base) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.bg-white,
+.bg-slate-50\/50,
+.bg-slate-50\/70,
+.bg-slate-50\/80,
+.bg-slate-100\/50,
+.bg-slate-100\/70 {
+  background-color: var(--color-card-bg) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.bg-slate-900,
+.bg-slate-950,
+.bg-slate-900\/50,
+.bg-slate-950\/50,
+.bg-slate-950\/60 {
+  background-color: #FFFFFF !important;
+  color: var(--color-text-primary) !important;
+}
+
+.med-card,
+.med-card-compact,
+.enterprise-card {
+  background: #FFFFFF !important;
+  border: 1px solid var(--color-border-base) !important;
+  box-shadow: var(--shadow-card) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.border-slate-100,
+.border-slate-200,
+.border-slate-300,
+.border-gray-100,
+.border-gray-200,
+.border-white\/10 {
+  border-color: var(--color-border-base) !important;
+}
+
+.border-slate-700,
+.border-slate-800,
+.border-slate-900 {
+  border-color: var(--color-border-strong) !important;
+}
+
+.text-slate-900,
+.text-slate-850,
+.text-slate-800,
+.text-slate-700,
+.text-gray-900,
+.text-gray-800,
+.text-gray-700 {
+  color: var(--color-text-primary) !important;
+}
+
+.text-slate-600,
+.text-slate-500,
+.text-slate-400,
+.text-gray-600,
+.text-gray-500 {
+  color: var(--color-text-secondary) !important;
+}
+
+.text-blue-600,
+.text-blue-700,
+.text-indigo-600,
+.text-indigo-700,
+.text-purple-600,
+.text-purple-700,
+.text-teal-600,
+.text-teal-700 {
+  color: var(--color-primary-blue) !important;
+}
+
+.text-emerald-600,
+.text-emerald-700,
+.text-green-600,
+.text-green-700 {
+  color: var(--color-secondary-emerald) !important;
+}
+
+.text-red-600,
+.text-red-700,
+.text-rose-600,
+.text-rose-700 {
+  color: #F87171 !important;
+}
+
+.text-amber-600,
+.text-amber-700,
+.text-amber-800,
+.text-amber-900 {
+  color: #FBBF24 !important;
+}
+
+input,
+select,
+textarea,
+.med-input {
+  background: #FFFFFF !important;
+  border-color: var(--color-border-base) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.med-input:focus {
+  border-color: var(--color-primary-blue) !important;
+  outline: 2px solid rgba(37, 99, 235, 0.28) !important;
+  outline-offset: 1px;
+}
+
+table,
+thead,
+tbody,
+tr {
+  border-color: var(--color-border-base) !important;
+}
+
+th {
+  color: var(--color-text-secondary) !important;
+}
+
+td {
+  color: var(--color-text-primary) !important;
+}
+
+.shadow-sm,
+.shadow,
+.shadow-md,
+.shadow-lg,
+.shadow-xl,
+.shadow-2xl {
+  box-shadow: var(--shadow-card) !important;
+}
+
+.hover\:bg-slate-50:hover,
+.hover\:bg-slate-100:hover,
+.hover\:bg-white:hover,
+.hover\:bg-blue-50:hover,
+.hover\:bg-emerald-50:hover,
+.hover\:bg-teal-50:hover {
+  background-color: var(--color-hover-bg) !important;
+}
+
+.med-button,
+.bg-emerald-600,
+.bg-green-600,
+.bg-teal-600 {
+  background-color: var(--color-primary-green) !important;
+  color: #ffffff !important;
+}
+
+.bg-blue-600 {
+  background-color: var(--color-primary-blue) !important;
+  color: #ffffff !important;
+}
+
+.bg-indigo-600,
+.bg-indigo-700,
+.bg-purple-500,
+.bg-purple-600,
+.bg-orange-500,
+.bg-slate-800 {
+  background-color: var(--color-primary-blue) !important;
+  color: #ffffff !important;
+}
+
+.bg-teal-500,
+.bg-teal-600,
+.bg-emerald-500,
+.bg-emerald-600 {
+  background-color: var(--color-primary-green) !important;
+  color: #ffffff !important;
+}
+
+.from-indigo-500,
+.from-indigo-600,
+.from-teal-600,
+.from-emerald-600 {
+  --tw-gradient-from: var(--color-primary-green) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(22 163 74 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+.to-indigo-500,
+.to-indigo-600,
+.to-teal-600,
+.to-emerald-700 {
+  --tw-gradient-to: var(--color-primary-blue) var(--tw-gradient-to-position) !important;
+}
+
+.bg-red-50,
+.bg-rose-50 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+
+.bg-emerald-50,
+.bg-green-50 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+
+.bg-blue-50,
+.bg-indigo-50 {
+  background-color: rgba(37, 99, 235, 0.12) !important;
+}
+
+.bg-amber-50,
+.bg-yellow-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
 }
 
 /* Print styles for prescriptions */

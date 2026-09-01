@@ -301,7 +301,7 @@ function Doctor() {
       <div className="med-shell max-w-3xl">
         <div className="med-topbar">
           <div className="flex min-w-0 items-center gap-3">
-            <img src="/logo.png" alt="MediLocker" className="h-11 w-11 object-contain" />
+            <img src="/logo.png" alt="Vritan" className="h-11 w-11 object-contain" />
             <p className="truncate text-sm med-muted">Doctor - {doctorDisplayName}</p>
           </div>
           <button type="button" onClick={handleLogout} className="med-button-secondary">

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { API_BASE, parseFastApiDetail } from "../api";
 import { useAuth } from "../hooks/useAuth";
@@ -35,15 +35,25 @@ function formatText(value) {
   return String(value);
 }
 
+const emptyMedicine = () => ({
+  medicine_name: "",
+  dosage: "",
+  frequency: "",
+  duration: "",
+  food_instruction: "",
+  special_instruction: "",
+});
+
 function DoctorPrescriptions() {
   const { token, user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
   const [viewMode, setViewMode] = useState("list"); // list, create, view, edit
   const [toast, setToast] = useState(null);
@@ -51,6 +61,8 @@ function DoctorPrescriptions() {
   const [signatureFile, setSignatureFile] = useState(null);
   const [uploadingSignature, setUploadingSignature] = useState(false);
   const [signatureMessage, setSignatureMessage] = useState("");
+  const routeMode = searchParams.get("mode");
+  const effectiveViewMode = routeMode === "create" ? "create" : viewMode;
 
   const fetchPrescriptions = useCallback(async () => {
     if (!token) return;
@@ -68,15 +80,6 @@ function DoctorPrescriptions() {
       const url = `${API_BASE}/prescriptions/doctor/my-prescriptions${
         params.toString() ? `?${params.toString()}` : ""
       }`;
-      console.log(patientSearchResult);
-      console.log({
-    patient_id: patientSearchResult.id,
-    diagnosis,
-    symptoms,
-    notes,
-    follow_up_date: followUpDate,
-    medicines
-});
       const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -110,26 +113,32 @@ function DoctorPrescriptions() {
   }
 
   function handleCreateNew() {
-    setShowCreateForm(true);
-    setViewMode("create");
     setSelectedPrescription(null);
+    navigate("/doctor/prescriptions?mode=create", {
+      state: { fromPrescriptionsList: true },
+    });
   }
 
   function handleViewPrescription(prescription) {
     setSelectedPrescription(prescription);
     setViewMode("view");
-    setShowCreateForm(false);
   }
 
   function handleEditPrescription(prescription) {
     setSelectedPrescription(prescription);
     setViewMode("edit");
-    setShowCreateForm(false);
   }
 
   function handleBackToList() {
+    if (effectiveViewMode === "create" && location.state?.fromPrescriptionsList) {
+      navigate(-1);
+      return;
+    }
+    if (effectiveViewMode === "create") {
+      navigate("/doctor/prescriptions", { replace: true });
+      return;
+    }
     setViewMode("list");
-    setShowCreateForm(false);
     setSelectedPrescription(null);
     fetchPrescriptions();
   }
@@ -190,20 +199,22 @@ function DoctorPrescriptions() {
     }
   }
 
-  if (viewMode === "create") {
+  if (effectiveViewMode === "create") {
     return (
       <CreatePrescriptionForm
         token={token}
         onCancel={handleBackToList}
         onSuccess={() => {
           setToast({ type: "success", message: "Prescription created successfully!" });
-          handleBackToList();
+          navigate("/doctor/prescriptions", { replace: true });
+          setViewMode("list");
+          fetchPrescriptions();
         }}
       />
     );
   }
 
-  if (viewMode === "view" && selectedPrescription) {
+  if (effectiveViewMode === "view" && selectedPrescription) {
     return (
       <PrescriptionView
         prescription={selectedPrescription}
@@ -238,7 +249,7 @@ function DoctorPrescriptions() {
     );
   }
 
-  if (viewMode === "edit" && selectedPrescription) {
+  if (effectiveViewMode === "edit" && selectedPrescription) {
     return (
       <EditPrescriptionForm
         prescription={selectedPrescription}
@@ -267,7 +278,7 @@ function DoctorPrescriptions() {
       <div className="med-shell max-w-4xl">
         <div className="med-topbar">
           <div className="flex min-w-0 items-center gap-3">
-            <img src="/logo.png" alt="MediLocker" className="h-11 w-11 object-contain" />
+            <img src="/logo.png" alt="Vritan" className="h-11 w-11 object-contain" />
             <p className="truncate text-sm med-muted">Doctor - {doctorDisplayName}</p>
           </div>
           <button type="button" onClick={handleLogout} className="med-button-secondary">
@@ -494,9 +505,10 @@ function CreatePrescriptionForm({ token, onCancel, onSuccess }) {
   const [symptoms, setSymptoms] = useState("");
   const [notes, setNotes] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
-  const [medicines, setMedicines] = useState([
-    { medicine_name: "", dosage: "", frequency: "", duration: "", food_instruction: "", special_instruction: "" },
-  ]);
+  const [medicines, setMedicines] = useState([emptyMedicine()]);
+  const [medicineSuggestions, setMedicineSuggestions] = useState({});
+  const suggestionCacheRef = useRef(new Map());
+  const suggestionTimersRef = useRef({});
 
   async function handlePatientSearch(e) {
     e.preventDefault();
@@ -524,10 +536,7 @@ function CreatePrescriptionForm({ token, onCancel, onSuccess }) {
   }
 
   function addMedicine() {
-    setMedicines([
-      ...medicines,
-      { medicine_name: "", dosage: "", frequency: "", duration: "", food_instruction: "", special_instruction: "" },
-    ]);
+    setMedicines([...medicines, emptyMedicine()]);
   }
 
   function removeMedicine(index) {
@@ -537,9 +546,67 @@ function CreatePrescriptionForm({ token, onCancel, onSuccess }) {
   }
 
   function updateMedicine(index, field, value) {
-    const updated = [...medicines];
-    updated[index][field] = value;
-    setMedicines(updated);
+    setMedicines((current) =>
+      current.map((medicine, medicineIndex) =>
+        medicineIndex === index ? { ...medicine, [field]: value } : medicine,
+      ),
+    );
+    if (field === "medicine_name") {
+      scheduleMedicineSuggestions(index, value);
+    }
+  }
+
+  function scheduleMedicineSuggestions(index, value) {
+    const query = value.trim();
+    window.clearTimeout(suggestionTimersRef.current[index]);
+    if (query.length < 2) {
+      setMedicineSuggestions((current) => ({ ...current, [index]: [] }));
+      return;
+    }
+    const cacheKey = query.toLowerCase();
+    if (suggestionCacheRef.current.has(cacheKey)) {
+      setMedicineSuggestions((current) => ({
+        ...current,
+        [index]: suggestionCacheRef.current.get(cacheKey),
+      }));
+      return;
+    }
+    suggestionTimersRef.current[index] = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/prescriptions/medicines/search?q=${encodeURIComponent(query)}&limit=8`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        const data = await response.json().catch(() => []);
+        if (!response.ok) {
+          return;
+        }
+        const results = Array.isArray(data) ? data : [];
+        suggestionCacheRef.current.set(cacheKey, results);
+        setMedicineSuggestions((current) => ({ ...current, [index]: results }));
+      } catch {
+        setMedicineSuggestions((current) => ({ ...current, [index]: [] }));
+      }
+    }, 220);
+  }
+
+  function applyMedicineSuggestion(index, suggestion) {
+    setMedicines((current) =>
+      current.map((medicine, medicineIndex) =>
+        medicineIndex === index
+          ? {
+              ...medicine,
+              medicine_name: suggestion.brand_name || suggestion.name,
+              dosage: medicine.dosage || suggestion.strength || "",
+            }
+          : medicine,
+      ),
+    );
+    setMedicineSuggestions((current) => ({ ...current, [index]: [] }));
   }
 
   async function handleSubmit(e) {
@@ -701,14 +768,40 @@ function CreatePrescriptionForm({ token, onCancel, onSuccess }) {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <label className="mb-1 block text-xs font-semibold med-title">Medicine Name *</label>
-                      <input
-                        type="text"
-                        value={med.medicine_name}
-                        onChange={(e) => updateMedicine(index, "medicine_name", e.target.value)}
-                        className="med-input"
-                        placeholder="e.g., Paracetamol"
-                        required
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={med.medicine_name}
+                          onChange={(e) => updateMedicine(index, "medicine_name", e.target.value)}
+                          className="med-input"
+                          placeholder="Search brand or generic"
+                          autoComplete="off"
+                          required
+                        />
+                        {medicineSuggestions[index]?.length ? (
+                          <div className="med-suggestion-list">
+                            {medicineSuggestions[index].map((suggestion) => (
+                              <button
+                                key={suggestion.id}
+                                type="button"
+                                onClick={() => applyMedicineSuggestion(index, suggestion)}
+                                className="med-suggestion-item"
+                              >
+                                <span className="font-semibold">{suggestion.brand_name || suggestion.name}</span>
+                                <span className="text-xs med-muted">
+                                  {[
+                                    suggestion.generic_name,
+                                    suggestion.strength,
+                                    suggestion.dosage_form,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" - ")}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-semibold med-title">Dosage *</label>
@@ -952,7 +1045,7 @@ function PrescriptionView({ prescription, token, onBack, onEdit, canDelete, onDe
                 <div>
                   <p className="text-xs font-semibold uppercase text-gray-500">Doctor's Signature</p>
                   {details.doctor_signature_url ? (
-                    <img src={details.doctor_signature_url} alt="Signature" className="mt-2 h-16 w-auto" />
+                    <img src={`${API_BASE}${details.doctor_signature_url}`} alt="Signature" className="mt-2 h-16 w-auto" />
                   ) : (
                     <p className="mt-2 text-sm italic text-gray-400">Signature not available</p>
                   )}
@@ -1001,23 +1094,23 @@ function EditPrescriptionForm({ prescription, token, onCancel, onSuccess }) {
   const [notes, setNotes] = useState(prescription.notes || "");
   const [followUpDate, setFollowUpDate] = useState(prescription.follow_up_date || "");
   const [medicines, setMedicines] = useState(
-    prescription.medicines?.map((med) => ({
-      medicine_name: med.medicine_name || "",
-      dosage: med.dosage || "",
-      frequency: med.frequency || "",
-      duration: med.duration || "",
-      food_instruction: med.food_instruction || "",
-      special_instruction: med.special_instruction || "",
-    })) || [
-      { medicine_name: "", dosage: "", frequency: "", duration: "", food_instruction: "", special_instruction: "" },
-    ]
+    prescription.medicines?.length
+      ? prescription.medicines.map((med) => ({
+          medicine_name: med.medicine_name || "",
+          dosage: med.dosage || "",
+          frequency: med.frequency || "",
+          duration: med.duration || "",
+          food_instruction: med.food_instruction || "",
+          special_instruction: med.special_instruction || "",
+        }))
+      : [emptyMedicine()]
   );
+  const [medicineSuggestions, setMedicineSuggestions] = useState({});
+  const suggestionCacheRef = useRef(new Map());
+  const suggestionTimersRef = useRef({});
 
   function addMedicine() {
-    setMedicines([
-      ...medicines,
-      { medicine_name: "", dosage: "", frequency: "", duration: "", food_instruction: "", special_instruction: "" },
-    ]);
+    setMedicines([...medicines, emptyMedicine()]);
   }
 
   function removeMedicine(index) {
@@ -1027,9 +1120,67 @@ function EditPrescriptionForm({ prescription, token, onCancel, onSuccess }) {
   }
 
   function updateMedicine(index, field, value) {
-    const updated = [...medicines];
-    updated[index][field] = value;
-    setMedicines(updated);
+    setMedicines((current) =>
+      current.map((medicine, medicineIndex) =>
+        medicineIndex === index ? { ...medicine, [field]: value } : medicine,
+      ),
+    );
+    if (field === "medicine_name") {
+      scheduleMedicineSuggestions(index, value);
+    }
+  }
+
+  function scheduleMedicineSuggestions(index, value) {
+    const query = value.trim();
+    window.clearTimeout(suggestionTimersRef.current[index]);
+    if (query.length < 2) {
+      setMedicineSuggestions((current) => ({ ...current, [index]: [] }));
+      return;
+    }
+    const cacheKey = query.toLowerCase();
+    if (suggestionCacheRef.current.has(cacheKey)) {
+      setMedicineSuggestions((current) => ({
+        ...current,
+        [index]: suggestionCacheRef.current.get(cacheKey),
+      }));
+      return;
+    }
+    suggestionTimersRef.current[index] = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/prescriptions/medicines/search?q=${encodeURIComponent(query)}&limit=8`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        const data = await response.json().catch(() => []);
+        if (!response.ok) {
+          return;
+        }
+        const results = Array.isArray(data) ? data : [];
+        suggestionCacheRef.current.set(cacheKey, results);
+        setMedicineSuggestions((current) => ({ ...current, [index]: results }));
+      } catch {
+        setMedicineSuggestions((current) => ({ ...current, [index]: [] }));
+      }
+    }, 220);
+  }
+
+  function applyMedicineSuggestion(index, suggestion) {
+    setMedicines((current) =>
+      current.map((medicine, medicineIndex) =>
+        medicineIndex === index
+          ? {
+              ...medicine,
+              medicine_name: suggestion.brand_name || suggestion.name,
+              dosage: medicine.dosage || suggestion.strength || "",
+            }
+          : medicine,
+      ),
+    );
+    setMedicineSuggestions((current) => ({ ...current, [index]: [] }));
   }
 
   async function handleSubmit(e) {
@@ -1160,14 +1311,40 @@ function EditPrescriptionForm({ prescription, token, onCancel, onSuccess }) {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <label className="mb-1 block text-xs font-semibold med-title">Medicine Name *</label>
-                      <input
-                        type="text"
-                        value={med.medicine_name}
-                        onChange={(e) => updateMedicine(index, "medicine_name", e.target.value)}
-                        className="med-input"
-                        placeholder="e.g., Paracetamol"
-                        required
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={med.medicine_name}
+                          onChange={(e) => updateMedicine(index, "medicine_name", e.target.value)}
+                          className="med-input"
+                          placeholder="Search brand or generic"
+                          autoComplete="off"
+                          required
+                        />
+                        {medicineSuggestions[index]?.length ? (
+                          <div className="med-suggestion-list">
+                            {medicineSuggestions[index].map((suggestion) => (
+                              <button
+                                key={suggestion.id}
+                                type="button"
+                                onClick={() => applyMedicineSuggestion(index, suggestion)}
+                                className="med-suggestion-item"
+                              >
+                                <span className="font-semibold">{suggestion.brand_name || suggestion.name}</span>
+                                <span className="text-xs med-muted">
+                                  {[
+                                    suggestion.generic_name,
+                                    suggestion.strength,
+                                    suggestion.dosage_form,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" - ")}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-semibold med-title">Dosage *</label>

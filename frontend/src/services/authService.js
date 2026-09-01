@@ -1,16 +1,7 @@
-import { API_BASE, parseFastApiDetail } from "../api";
+import { apiClient } from "../api/client";
 
 async function postJson(path, body) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(parseFastApiDetail(data));
-  }
-  return data;
+  return apiClient.post(path, body);
 }
 
 export const doctorAuthService = {
@@ -36,14 +27,30 @@ export const doctorAuthService = {
 };
 
 export const patientAuthService = {
-  loginWithOtp(mobile, otp) {
-    return postJson("/login/patient-otp", { mobile, otp });
+  async loginWithOtp(mobile, firebase_id_token) {
+    try {
+      return await postJson("/login/patient-firebase", { mobile, firebase_id_token });
+    } catch (err) {
+      if (err.status === 404 && err.data?.detail === "NO_ACCOUNT") {
+        err.needsRegistration = true;
+      }
+      throw err;
+    }
   },
 };
 
 export const adminAuthService = {
-  login(email, password) {
+  login(identifier, password) {
     return postJson("/admin/login", {
+      identifier: identifier.trim().toLowerCase(),
+      password,
+    });
+  },
+};
+
+export const labAuthService = {
+  login(email, password) {
+    return postJson("/lab/login", {
       email: email.trim().toLowerCase(),
       password,
     });

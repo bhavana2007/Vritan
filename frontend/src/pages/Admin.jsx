@@ -1,246 +1,276 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-import { API_BASE, parseFastApiDetail } from "../api";
 import { useAuth } from "../hooks/useAuth";
+import { API_BASE, parseFastApiDetail } from "../api";
 
-function formatDateTime(value) {
-  if (!value) return "Not provided";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+import { Sidebar } from "./admin/components/Sidebar";
+import { ConfirmationModal } from "./admin/components/ConfirmationModal";
+
+import { useAdminDashboard } from "./admin/hooks/useAdminDashboard";
+import { useVerification } from "./admin/hooks/useVerification";
+
+import { DashboardPanel } from "./admin/DashboardPanel";
+import { VerificationPanel } from "./admin/VerificationPanel";
+import { DirectoriesPanel } from "./admin/DirectoriesPanel";
+import { AIAnalyticsPanel } from "./admin/AIAnalyticsPanel";
+import { AuditLogsPanel } from "./admin/AuditLogsPanel";
+import { SettingsPanel } from "./admin/SettingsPanel";
+import { SystemHealthPanel } from "./admin/SystemHealthPanel";
+
+import React, { useEffect } from "react";
+
+// Reusable Verification Document View Modal
+function VerificationDocModal({ token, docType, entityId, onClose }) {
+  const [url, setUrl] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!entityId) return;
+    setLoading(true);
+    setError("");
+
+    fetch(`${API_BASE}/admin/verification-document/${docType}/${entityId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(parseFastApiDetail(data) || "File not found");
+        }
+        const blob = await res.blob();
+        setUrl(URL.createObjectURL(blob));
+      })
+      .catch((err) => setError(err.message || "Could not load document"))
+      .finally(() => setLoading(false));
+
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [entityId, docType, token]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-200"
+        style={{ maxHeight: "90vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900">Verification Document</h2>
+          <div className="flex gap-2 items-center">
+            {url && (
+              <a
+                href={url}
+                download="verification_document"
+                className="px-3 py-1.5 border border-blue-200 text-xs font-bold rounded-xl text-blue-700 hover:bg-blue-50"
+              >
+                Download
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-900 text-2xl leading-none"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4 bg-slate-50">
+          {loading && (
+            <div className="flex items-center justify-center h-48 text-slate-500">
+              Loading document...
+            </div>
+          )}
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl">{error}</div>
+          )}
+          {url && !loading && (
+            url.includes("pdf") || url.endsWith(".pdf") ? (
+              <iframe
+                src={url}
+                className="w-full rounded-xl border border-slate-200"
+                style={{ height: "65vh" }}
+                title="Verification Document"
+              />
+            ) : (
+              <img
+                src={url}
+                alt="Verification Document"
+                className="max-w-full mx-auto rounded-xl border border-slate-200 shadow"
+              />
+            )
+          )}
+          {url && !loading && (
+            <object
+              data={url}
+              className="w-full rounded-xl border border-slate-200 mt-2"
+              style={{ height: "65vh", display: "block" }}
+              aria-label="Verification document viewer"
+            >
+              <p className="text-center text-slate-500 py-8">
+                Cannot preview this file type.{" "}
+                <a href={url} download className="text-emerald-600 font-bold hover:underline">Download instead</a>
+              </p>
+            </object>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Admin() {
   const { token, user, logout } = useAuth();
   const navigate = useNavigate();
-  const [doctors, setDoctors] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("pending");
-  const [loading, setLoading] = useState(true);
-  const [actingDoctorId, setActingDoctorId] = useState(null);
-  const [message, setMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("dashboard");
 
-  const fetchDoctors = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setErrorMessage("");
+  // Notifications Toast State
+  const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' | 'loading' }
 
-    try {
-      const endpoint = `${API_BASE}/admin/doctors?status=${encodeURIComponent(statusFilter)}`;
-      
-      const response = await fetch(endpoint, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          logout();
-          navigate("/admin/login", { replace: true });
-          return;
-        }
-        throw new Error(parseFastApiDetail(data));
-      }
-      setDoctors(Array.isArray(data) ? data : []);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not load doctor verification queue.",
-      );
-    } finally {
-      setLoading(false);
+  // Action Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    orgType: "",
+    orgId: "",
+    action: "",
+    reason: "",
+  });
+
+  // View Doc Modal State
+  const [docModal, setDocModal] = useState(null); // { docType, entityId }
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    if (type !== "loading") {
+      setTimeout(() => setToast(null), 4000);
     }
-  }, [logout, navigate, statusFilter, token]);
+  };
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      fetchDoctors();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [fetchDoctors]);
+  // Instantiate hooks containing centralized state machine operations
+  const { stats, health, loading: dashLoading, refreshData } = useAdminDashboard(token);
+  const { pendingData, auditLogs, loading: verifLoading, handleAction, processingId } = useVerification(token);
 
   function handleLogout() {
     logout();
     navigate("/", { replace: true });
   }
 
-  async function updateDoctorStatus(doctor, action) {
-    setActingDoctorId(doctor.user_id);
-    setMessage("");
-    setErrorMessage("");
+  // Pre-action triggers displaying confirmation modal
+  const triggerAction = (orgType, orgId, action, reason) => {
+    const formattedActionText = action === "APPROVE" ? "approve and assign a Vritan ID to" : action === "REJECT" ? "reject" : "suspend";
+    setConfirmModal({
+      isOpen: true,
+      title: "Confirm Dashboard Action",
+      message: `Are you sure you want to ${formattedActionText} this stakeholder organization record? This action will write security logs in the audit trace.`,
+      orgType,
+      orgId,
+      action,
+      reason,
+    });
+  };
+
+  const confirmActionExecution = async () => {
+    const { orgType, orgId, action, reason } = confirmModal;
+    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+    showToast("Processing request...", "loading");
 
     try {
-      const response = await fetch(
-        `${API_BASE}/admin/doctors/${doctor.user_id}/${action}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          logout();
-          navigate("/admin/login", { replace: true });
-          return;
-        }
-        throw new Error(parseFastApiDetail(data));
-      }
-      setDoctors((current) =>
-        statusFilter === "all"
-          ? current.map((item) => (item.user_id === doctor.user_id ? data : item))
-          : current.filter((item) => item.user_id !== doctor.user_id),
-      );
-      setMessage(
-        action === "approve"
-          ? "Doctor approved successfully."
-          : "Doctor verification rejected.",
-      );
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not update doctor verification.",
-      );
-    } finally {
-      setActingDoctorId(null);
+      await handleAction(orgType, orgId, action, reason);
+      showToast(`Action ${action.toLowerCase()} completed successfully.`, "success");
+      refreshData();
+    } catch (err) {
+      showToast(`Action failed: ${err.message || "Unknown error"}`, "error");
     }
-  }
+  };
+
+  const renderActivePanel = () => {
+    switch (activeTab) {
+      case "dashboard":
+        return <DashboardPanel stats={stats} onNavigate={setActiveTab} />;
+      case "verification":
+        return (
+          <VerificationPanel
+            pendingData={pendingData}
+            loading={verifLoading}
+            onAction={triggerAction}
+            processingId={processingId}
+            onViewDoc={(docType, entityId) => setDocModal({ docType, entityId })}
+          />
+        );
+      case "directories":
+        return <DirectoriesPanel token={token} />;
+      case "ai_analytics":
+        return <AIAnalyticsPanel />;
+      case "health":
+        return <SystemHealthPanel health={health} />;
+      case "audit_logs":
+        return <AuditLogsPanel auditLogs={auditLogs} loading={verifLoading} />;
+      case "settings":
+        return <SettingsPanel />;
+      default:
+        return <DashboardPanel stats={stats} onNavigate={setActiveTab} />;
+    }
+  };
 
   return (
-    <div className="med-page">
-      <div className="med-shell max-w-4xl">
-        <div className="med-topbar">
-          <div className="flex min-w-0 items-center gap-3">
-            <img src="/logo.png" alt="MediLocker" className="h-11 w-11 object-contain" />
-            <p className="truncate text-sm med-muted">
-              Admin &middot; {user?.email || "account"}
-            </p>
+    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden font-sans text-slate-900">
+      {/* Dynamic Sidebar menu */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        role="SUPER_ADMIN"
+        user={user}
+        onLogout={handleLogout}
+      />
+
+      {/* Main page content area */}
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Top Notification Bar */}
+        {toast && (
+          <div className="absolute top-4 right-4 z-50 animate-in fade-in slide-in-from-top-4 duration-200">
+            <div className={`px-4 py-3 rounded-xl shadow-lg text-xs font-bold border flex items-center gap-2 ${
+              toast.type === "success" ? "bg-green-50 text-green-800 border-green-200" :
+              toast.type === "error" ? "bg-red-50 text-red-800 border-red-200" :
+              "bg-blue-50 text-blue-800 border-blue-200"
+            }`}>
+              {toast.type === "loading" && <span className="inline-block animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current"></span>}
+              {toast.message}
+            </div>
           </div>
-          <button type="button" onClick={handleLogout} className="med-button-secondary">
-            Log out
-          </button>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-8 max-w-7xl w-full mx-auto">
+          {renderActivePanel()}
         </div>
+      </main>
 
-        <section className="med-card p-5 sm:p-6">
-          <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold med-title">
-                Doctor Verification
-              </h1>
-              <p className="mt-1 text-sm med-muted">
-                Review doctor registrations before patient search and access workflows unlock.
-              </p>
-            </div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="med-input sm:max-w-48"
-            >
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="all">All doctors</option>
-            </select>
-          </div>
+      {/* Confirmation overlays and View Document Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmActionExecution}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        confirmText="Execute Action"
+        isProcessing={processingId !== null}
+      />
 
-          {message ? (
-            <p className="mb-4 med-alert med-alert-success">{message}</p>
-          ) : null}
-
-          {errorMessage ? (
-            <p className="mb-4 med-alert med-alert-danger">{errorMessage}</p>
-          ) : null}
-
-          {loading ? (
-            <div className="med-alert med-alert-info">Loading doctors...</div>
-          ) : null}
-
-          {!loading && doctors.length === 0 ? (
-            <div className="med-alert med-alert-info">
-              No doctors found for this filter.
-            </div>
-          ) : null}
-
-          <div className="space-y-3">
-            {doctors.map((doctor) => (
-              <div key={doctor.user_id} className="med-detail-card">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p className="break-words text-lg font-semibold med-title">
-                      {doctor.full_name || "Doctor"}
-                    </p>
-                    <div className="mt-2 grid grid-cols-1 gap-2 text-sm med-muted sm:grid-cols-2">
-                      <p>Email: {doctor.email || "Not provided"}</p>
-                      <p>Hospital: {doctor.hospital || "Not provided"}</p>
-                      <p>Phone: {doctor.phone || "Not provided"}</p>
-                      <p>License: {doctor.medical_license_number || "Not provided"}</p>
-                      <p>Specialization: {doctor.specialization || "Not specified"}</p>
-                      <p>Experience: {doctor.years_of_experience ? `${doctor.years_of_experience} years` : "Not specified"}</p>
-                      <p>Registered: {formatDateTime(doctor.created_at)}</p>
-                      <p>Status: {doctor.verification_status}</p>
-                      {doctor.verification_document_url && (
-                        <p>
-                          <a
-                            href={doctor.verification_document_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="med-link"
-                          >
-                            View Verification Document
-                          </a>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 sm:min-w-56">
-                    {doctor.phone && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(doctor.phone);
-                          setMessage("Phone number copied to clipboard");
-                          setTimeout(() => setMessage(""), 2000);
-                        }}
-                        className="med-button-secondary"
-                      >
-                        Call
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={actingDoctorId === doctor.user_id}
-                      onClick={() => updateDoctorStatus(doctor, "approve")}
-                      className="med-button-success"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actingDoctorId === doctor.user_id}
-                      onClick={() => updateDoctorStatus(doctor, "reject")}
-                      className="med-button-danger"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
+      {docModal && (
+        <VerificationDocModal
+          token={token}
+          docType={docModal.docType}
+          entityId={docModal.entityId}
+          onClose={() => setDocModal(null)}
+        />
+      )}
     </div>
   );
 }

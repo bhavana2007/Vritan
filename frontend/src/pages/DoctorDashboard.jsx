@@ -1,178 +1,184 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-import { API_BASE } from "../api";
+import { apiClient } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import DoctorSidebar from "../components/DoctorSidebar";
 
 function DoctorDashboard() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
+
   const [stats, setStats] = useState({
+    today_appointments: 0,
+    waiting_queue: 0,
+    pending_access_requests: 0,
+    active_consultations: 0,
     total_patients: 0,
     prescriptions_today: 0,
-    pending_access_requests: 0,
-    active_approved_patients: 0,
   });
+  const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
-    async function fetchStats() {
+    async function fetchDashboardData() {
       if (!token) return;
-
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE}/doctor/dashboard-stats`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.detail || "Failed to load dashboard stats");
-        }
-        setStats(data);
+        const [statsData, activityData] = await Promise.all([
+          apiClient.get("/doctor/dashboard-stats").catch(() => ({
+            today_appointments: 0,
+            waiting_queue: 0,
+            pending_access_requests: 0,
+            active_consultations: 0,
+            total_patients: 0,
+            prescriptions_today: 0,
+          })),
+          apiClient.get("/doctor/recent-activity").catch(() => []),
+        ]);
+        setStats(statsData);
+        setRecentActivity(Array.isArray(activityData) ? activityData : []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load dashboard stats");
+        console.error("Doctor dashboard error:", err);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchStats();
+    fetchDashboardData();
   }, [token]);
 
   const statCards = [
     {
-      title: "Total Patients",
-      value: stats.total_patients,
-      icon: "👥",
-      color: "bg-blue-50 text-blue-700",
-      description: "Patients you've interacted with",
+      title: "Today's Appointments",
+      value: stats.today_appointments || 0,
+      icon: "📅",
+      color: "bg-blue-50 border-blue-100 text-blue-700",
+      description: "Scheduled for today",
     },
     {
-      title: "Prescriptions Today",
-      value: stats.prescriptions_today,
-      icon: "📋",
-      color: "bg-green-50 text-green-700",
-      description: "Prescriptions created today",
-    },
-    {
-      title: "Pending Requests",
-      value: stats.pending_access_requests,
+      title: "Waiting Queue",
+      value: stats.waiting_queue || 0,
       icon: "⏳",
-      color: "bg-yellow-50 text-yellow-700",
-      description: "Awaiting patient approval",
+      color: "bg-orange-50 border-orange-100 text-orange-700",
+      description: "Patients waiting in OPD",
     },
     {
-      title: "Active Patients",
-      value: stats.active_approved_patients,
-      icon: "✅",
-      color: "bg-teal-50 text-teal-700",
-      description: "Currently approved access",
+      title: "Pending Access Requests",
+      value: stats.pending_access_requests || 0,
+      icon: "🛡️",
+      color: "bg-purple-50 border-purple-100 text-purple-700",
+      description: "Consent sharing requests",
+    },
+    {
+      title: "Active Consultations",
+      value: stats.active_consultations || 0,
+      icon: "🩺",
+      color: "bg-emerald-50 border-emerald-100 text-emerald-700",
+      description: "Encounters in progress",
     },
   ];
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <DoctorSidebar currentPage="dashboard" />
+    <div className="flex h-screen bg-slate-100 font-sans text-slate-800">
+      <DoctorSidebar />
 
-      <main className="flex-1 ml-64 p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Doctor Dashboard</h1>
-            <p className="mt-2 text-gray-600">Welcome back! Here's your practice overview.</p>
+      <main className="flex-1 overflow-y-auto p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                Doctor EHR Workspace Overview
+              </h1>
+              <p className="text-sm text-slate-500 mt-1 font-medium">
+                Live clinical statistics and real-time patient queue metrics.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => navigate('/doctor/appointments')}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors"
+              >
+                Go to OPD Appointments Queue &rarr;
+              </button>
+            </div>
           </div>
 
-          {error ? (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-              {error}
-            </div>
-          ) : null}
-
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
-              <p className="mt-4 text-gray-600">Loading dashboard...</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {statCards.map((card) => (
-                  <div
-                    key={card.title}
-                    className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-center justify-between mb-4">
-                      <div className={`p-3 rounded-lg ${card.color}`}>
-                        <span className="text-2xl">{card.icon}</span>
-                      </div>
-                      <span className="text-3xl font-bold text-gray-900">{card.value}</span>
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-900">{card.title}</h3>
-                    <p className="mt-1 text-sm text-gray-600">{card.description}</p>
+          {/* Live EHR Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {statCards.map((card, idx) => (
+              <div key={idx} className={`p-5 rounded-2xl border ${card.color} bg-white shadow-sm flex flex-col justify-between`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{card.title}</p>
+                    <h2 className="text-3xl font-extrabold text-slate-900 mt-2">{loading ? "..." : card.value}</h2>
                   </div>
-                ))}
+                  <span className="text-2xl">{card.icon}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-3 font-medium">{card.description}</p>
               </div>
+            ))}
+          </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
+          {/* Secondary Live Sections: Notifications & Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Clinical Notifications */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <span>🔔</span> Clinical System Notifications
+                  </h3>
+                  <button onClick={() => navigate('/doctor/notifications')} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                    View All
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                    <p className="font-bold text-slate-800">Hospital EHR System Active</p>
+                    <p className="text-slate-600 mt-0.5">Live database synchronization enabled for all outpatient visits.</p>
+                  </div>
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                    <p className="font-bold text-slate-800">Automatic QR Code Pipeline Ready</p>
+                    <p className="text-slate-600 mt-0.5">Prescriptions finalized will auto-generate encrypted patient QR codes.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <span>📋</span> Recent Clinical Activity Log
+                  </h3>
+                  <button onClick={() => navigate('/doctor/patients')} className="text-xs font-bold text-blue-600 hover:text-blue-700">
+                    Patient Directory
+                  </button>
+                </div>
+
+                {recentActivity.length > 0 ? (
                   <div className="space-y-3">
-                    <button
-                      onClick={() => navigate("/doctor/patients")}
-                      className="w-full text-left px-4 py-3 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-medium transition-colors flex items-center gap-3"
-                    >
-                      <span className="text-xl">🔍</span>
-                      <span>Search Patients</span>
-                    </button>
-                    <button
-                      onClick={() => navigate("/doctor/prescriptions")}
-                      className="w-full text-left px-4 py-3 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium transition-colors flex items-center gap-3"
-                    >
-                      <span className="text-xl">📋</span>
-                      <span>View Prescriptions</span>
-                    </button>
-                    <button
-                      onClick={() => navigate("/doctor/profile")}
-                      className="w-full text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium transition-colors flex items-center gap-3"
-                    >
-                      <span className="text-xl">👤</span>
-                      <span>Update Profile</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Analytics Preview</h2>
-                  <div className="space-y-4">
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Monthly Prescription Trend</p>
-                      <div className="h-32 flex items-end justify-between gap-2">
-                        {[40, 65, 45, 80, 55, 90, 70].map((height, index) => (
-                          <div
-                            key={index}
-                            className="flex-1 bg-teal-500 rounded-t transition-all hover:bg-teal-600"
-                            style={{ height: `${height}%` }}
-                            title={`Week ${index + 1}`}
-                          />
-                        ))}
+                    {recentActivity.slice(0, 4).map((act, i) => (
+                      <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-slate-800">{act.description || act.action || "Clinical encounter recorded"}</p>
+                          <p className="text-slate-500 text-[11px]">{act.created_at || "Today"}</p>
+                        </div>
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded text-[10px]">Logged</span>
                       </div>
-                      <div className="flex justify-between mt-2 text-xs text-gray-500">
-                        <span>Week 1</span>
-                        <span>Week 7</span>
-                      </div>
-                    </div>
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-medium text-gray-700">Recent Activity</p>
-                      <p className="text-xs text-gray-500 mt-1">Activity tracking coming soon</p>
-                    </div>
+                    ))}
                   </div>
-                </div>
+                ) : (
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                    No recent activity logged for today.
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            </div>
+          </div>
         </div>
       </main>
     </div>

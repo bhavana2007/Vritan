@@ -68,18 +68,18 @@ export function MedicalRecordProvider({ children }) {
     };
   }, []);
 
-  const fetchRecords = useCallback(async (force = false) => {
+  const fetchRecords = useCallback(async (force = false, search = "") => {
     if (!token) return;
-    if (hasFetched && !force) return;
+    if (hasFetched && !force && !search) return;
 
     try {
       setLoading(true);
       setError(null);
-      const data = await recordsApi.getRecords();
+      const data = await recordsApi.getRecords(search);
       const rawRecords = Array.isArray(data) ? data : [];
       const normalized = rawRecords.map(r => normalizeRecord(r)).filter(Boolean);
       setRecords(normalized);
-      setHasFetched(true);
+      if (!search) setHasFetched(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load medical records');
     } finally {

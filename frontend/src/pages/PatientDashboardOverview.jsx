@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usePatientProfile } from "../context/PatientProfileContext";
 import { useNotifications } from "../context/NotificationContext";
+import { patientApi } from "../api/patient";
 
 function maskPhone(phone) {
   if (!phone) return "";
@@ -25,8 +26,8 @@ function formatDateTime(value) {
 
 function PatientDashboardOverview() {
   const { user, activeProfile } = useAuth();
-  const { profile, dashboardSummary, loading: profileLoading, error: profileError } = usePatientProfile();
-  const { unreadCount, notifications } = useNotifications();
+  const { profile, dashboardSummary, loading: profileLoading, error: profileError, refreshProfile } = usePatientProfile();
+  const { unreadCount, notifications, fetchNotifications } = useNotifications();
 
   const [accessRequests, setAccessRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
@@ -40,20 +41,45 @@ function PatientDashboardOverview() {
 
   const fetchAccessRequests = useCallback(async () => {
     try {
-      setRequestsLoading(true);
+      // Don't set loading state on polling to prevent UI flicker
+      if (accessRequests.length === 0) setRequestsLoading(true);
       setRequestsError("");
-      // Access requests lookup can rely on standard endpoints
-      setAccessRequests([]);
+      const data = await patientApi.getAccessRequests();
+      setAccessRequests(data || []);
     } catch (error) {
       setRequestsError(error instanceof Error ? error.message : "Unable to sync doctor access requests.");
     } finally {
       setRequestsLoading(false);
     }
-  }, []);
+  }, [accessRequests.length]);
 
   useEffect(() => {
     fetchAccessRequests();
-  }, [fetchAccessRequests]);
+    
+    // Phase 16: Real-time Polling every 5 seconds
+    const interval = setInterval(() => {
+      fetchAccessRequests();
+      if (refreshProfile) refreshProfile();
+      if (fetchNotifications) fetchNotifications();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [fetchAccessRequests, refreshProfile, fetchNotifications]);
+
+  const handleRequestResponse = async (id, decision) => {
+    try {
+      setRespondingRequestId(id);
+      setConsentMessage("");
+      await patientApi.respondAccessRequest(id, decision);
+      setConsentMessage(`Request successfully ${decision}d.`);
+      await fetchAccessRequests();
+      setTimeout(() => setConsentMessage(""), 3000);
+    } catch (error) {
+      setConsentMessage(error instanceof Error ? error.message : `Failed to ${decision} request.`);
+    } finally {
+      setRespondingRequestId(null);
+    }
+  };
 
   const pendingRequests = accessRequests.filter((request) => request.status === "pending");
 
@@ -123,10 +149,10 @@ function PatientDashboardOverview() {
             {dashboardSummary?.upcoming_appointment ? (
               <div className="space-y-2 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
                 <p className="font-bold text-slate-900 text-base">
-                  Dr. {dashboardSummary.upcoming_appointment.doctor_id}
+                  Dr. {dashboardSummary.upcoming_appointment.doctor_name || dashboardSummary.upcoming_appointment.doctor_id}
                 </p>
                 <p className="text-sm text-slate-600">
-                  {dashboardSummary.upcoming_appointment.scheduled_date} at {dashboardSummary.upcoming_appointment.scheduled_time}
+                  {dashboardSummary.upcoming_appointment.date || dashboardSummary.upcoming_appointment.scheduled_date} at {dashboardSummary.upcoming_appointment.start_time || dashboardSummary.upcoming_appointment.scheduled_time}
                 </p>
                 <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">
                   {dashboardSummary.upcoming_appointment.status || "Confirmed"}
@@ -217,9 +243,53 @@ function PatientDashboardOverview() {
           <p className="text-xs text-slate-500 mb-4">
             Temporary read-only permissions requested by verified clinical providers.
           </p>
-          <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm text-slate-500">
-            No active clinician consent requests found.
-          </div>
+            {consentMessage && (
+              <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm font-semibold text-center">
+                {consentMessage}
+              </div>
+            )}
+            
+            {requestsLoading && accessRequests.length === 0 ? (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm text-slate-500 animate-pulse">
+                Checking for clinician consent requests...
+              </div>
+            ) : requestsError ? (
+              <div className="p-6 bg-rose-50 border border-rose-200 rounded-xl text-center text-sm text-rose-600">
+                {requestsError}
+              </div>
+            ) : pendingRequests.length === 0 ? (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm text-slate-500">
+                No active clinician consent requests found.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pendingRequests.map((request) => (
+                  <div key={request.id} className="bg-white border border-blue-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-bold text-slate-900">{request.doctor_name || "Doctor"}</h4>
+                      <p className="text-sm text-slate-600">{request.hospital || "Healthcare Provider"}</p>
+                      <p className="text-xs text-slate-400 mt-1">Requested: {formatDateTime(request.created_at)}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRequestResponse(request.id, "approve")}
+                        disabled={respondingRequestId === request.id}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {respondingRequestId === request.id ? "Processing..." : "Approve"}
+                      </button>
+                      <button
+                        onClick={() => handleRequestResponse(request.id, "deny")}
+                        disabled={respondingRequestId === request.id}
+                        className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
         </section>
 
         <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">

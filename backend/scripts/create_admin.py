@@ -1,4 +1,4 @@
-"""Create or update a local MediLocker admin account."""
+"""Create or update a local Vritan admin account."""
 import argparse
 import sys
 from pathlib import Path
@@ -41,7 +41,7 @@ def create_admin(email: str, password: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create a MediLocker admin account.")
+    parser = argparse.ArgumentParser(description="Create a Vritan admin account.")
     parser.add_argument("--email", default=DEFAULT_EMAIL)
     parser.add_argument("--password", default=DEFAULT_PASSWORD)
     args = parser.parse_args()

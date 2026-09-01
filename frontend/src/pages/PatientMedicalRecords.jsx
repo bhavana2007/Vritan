@@ -10,8 +10,8 @@ function PatientMedicalRecords() {
   const [uploading, setUploading] = useState(false);
   const [recordsError, setRecordsError] = useState("");
   const [uploadMessage, setUploadMessage] = useState("");
-  const [recordType, setRecordType] = useState("prescription");
   const [recordFile, setRecordFile] = useState(null);
+  const [activeTab, setActiveTab] = useState("PRESCRIPTIONS");
   const [notes, setNotes] = useState("");
   const [recordSearch, setRecordSearch] = useState("");
   const [recordSearchFilter, setRecordSearchFilter] = useState("all");
@@ -20,10 +20,14 @@ function PatientMedicalRecords() {
   const [deleteCandidate, setDeleteCandidate] = useState(null);
   const [deletingRecordId, setDeletingRecordId] = useState(null);
   const [toast, setToast] = useState(null);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
 
   useEffect(() => {
-    fetchRecords();
-  }, [fetchRecords]);
+    if (isFirstLoad) {
+      fetchRecords();
+      setIsFirstLoad(false);
+    }
+  }, [fetchRecords, isFirstLoad]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -54,6 +58,14 @@ function PatientMedicalRecords() {
       return;
     }
     const formData = new FormData();
+    let recordType = "other";
+    if (activeTab === "PRESCRIPTIONS") {
+      recordType = "prescription";
+    } else if (activeTab === "REPORTS") {
+      recordType = "report";
+    } else if (activeTab === "SCANS") {
+      recordType = "scan";
+    }
     formData.append("record_type", recordType);
     formData.append("notes", notes);
     formData.append("file", recordFile);
@@ -68,7 +80,7 @@ function PatientMedicalRecords() {
       setUploadMessage("Medical record uploaded successfully with OCR analysis.");
       setToast({ type: "success", message: "Medical record uploaded successfully with OCR analysis." });
     } catch (error) {
-      const message = "Unable to process this file. Please try another PDF or image.";
+      const message = error instanceof Error && error.message ? error.message : "Unable to process this file. Please try another PDF or image.";
       setRecordsError(message);
       setToast({ type: "danger", message });
     } finally {
@@ -117,7 +129,28 @@ function PatientMedicalRecords() {
 
   const recordsList = Array.isArray(records) ? records : [];
 
-  const groupedRecords = recordsList.reduce((groups, record) => {
+  const categorizeRecord = (record) => {
+    let type = record?.document_type || "other";
+    if (record?.ai_structured_data) {
+      if (typeof record.ai_structured_data === "object") {
+        type = record.ai_structured_data.document_type || type;
+      } else if (typeof record.ai_structured_data === "string") {
+        try {
+          const parsed = JSON.parse(record.ai_structured_data);
+          type = parsed.document_type || type;
+        } catch (e) {}
+      }
+    }
+    type = type.toLowerCase();
+    
+    if (["prescription", "eye_prescription"].includes(type)) return "PRESCRIPTIONS";
+    if (["radiology_report", "mri", "ct_scan", "xray", "ultrasound_report", "ecg_report"].includes(type)) return "SCANS";
+    return "REPORTS";
+  };
+  
+  const filteredRecordsList = recordsList.filter(r => categorizeRecord(r) === activeTab);
+
+  const groupedRecords = filteredRecordsList.reduce((groups, record) => {
     if (!record) return groups;
     const date = new Date(record.uploaded_at);
     const label = Number.isNaN(date.getTime())
@@ -127,6 +160,16 @@ function PatientMedicalRecords() {
     groups[label].push(record);
     return groups;
   }, {});
+
+  // Debounced search logic to trigger server-side search
+  useEffect(() => {
+    if (isFirstLoad) return;
+    const delayDebounceFn = setTimeout(() => {
+      fetchRecords(true, recordSearch);
+    }, 450);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [recordSearch, fetchRecords, isFirstLoad]);
 
   return (
     <div className="max-w-6xl mx-auto animate-fade-in pb-12">
@@ -163,19 +206,31 @@ function PatientMedicalRecords() {
       <SecureFileViewer file={viewerFile} onClose={closeViewer} />
 
       <section className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row">
-          <input type="search" placeholder="Search medicines, conditions, notes, or OCR text" value={recordSearch} onChange={(e) => setRecordSearch(e.target.value)} className="flex-1 px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
-          <select value={recordSearchFilter} onChange={(e) => setRecordSearchFilter(e.target.value)} className="px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none sm:max-w-48 bg-white">
-            <option value="all">All tags</option>
-            <option value="medicine">Medicine</option>
-            <option value="condition">Condition</option>
-            <option value="ocr">OCR text</option>
-            <option value="month">Upload month</option>
-            <option value="type">Record type</option>
-          </select>
-          <button type="button" onClick={() => fetchRecords(true)} disabled={recordsLoading} className="px-6 py-3 bg-blue-50 text-blue-700 font-medium rounded-xl hover:bg-blue-100 transition-colors">
-            Refresh
-          </button>
+        {/* Redesigned Search UI */}
+        <div className="mb-6 relative flex items-center">
+          <span className="absolute left-4 text-slate-400">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </span>
+          <input
+            type="text"
+            placeholder="Search records, doctors, hospitals, medicines..."
+            value={recordSearch}
+            onChange={(e) => setRecordSearch(e.target.value)}
+            className="w-full pl-12 pr-12 py-3 border border-slate-200 bg-white rounded-xl outline-none focus:border-blue-500 transition-colors text-sm font-semibold shadow-inner"
+          />
+          {recordSearch && (
+            <button
+              type="button"
+              onClick={() => setRecordSearch("")}
+              className="absolute right-4 text-slate-400 hover:text-slate-600 focus:outline-none"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
         <div className="mb-6 flex flex-wrap gap-2">
           {["prescription", "blood report", "fever"].map((chip) => (
@@ -186,13 +241,7 @@ function PatientMedicalRecords() {
         </div>
 
         <form onSubmit={handleRecordUpload} className="mb-8 space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <select value={recordType} onChange={(e) => setRecordType(e.target.value)} disabled={uploading} className="px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-              <option value="prescription">Prescription</option>
-              <option value="report">Report</option>
-              <option value="scan">Scan</option>
-              <option value="other">Other</option>
-            </select>
+          <div className="grid grid-cols-1 gap-4">
             <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={uploading} className="px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -223,16 +272,32 @@ function PatientMedicalRecords() {
 
         {recordsLoading && <div className="mt-4"><LoadingSkeleton type="card" count={3} /></div>}
 
-        {!recordsLoading && recordsList.length === 0 && !(recordsError || contextError) && (
+        {!recordsLoading && filteredRecordsList.length === 0 && !(recordsError || contextError) && (
           <div className="p-12 text-center bg-slate-50 border border-slate-200 rounded-2xl mt-6">
             <span className="text-5xl mb-4 block">🛡️</span>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">No medical records found.</h3>
-            <p className="text-slate-500 text-sm max-w-sm mx-auto">Upload your first prescription, laboratory report, or diagnostic report.</p>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">No medical records found in this category.</h3>
+            <p className="text-slate-500 text-sm max-w-sm mx-auto">Upload your prescription, laboratory report, or diagnostic report.</p>
           </div>
         )}
 
-        {!recordsLoading && recordsList.length > 0 && (
-          <div className="space-y-8 mt-8">
+        <div className="flex border-b border-slate-200 mb-6 gap-6">
+          {["PRESCRIPTIONS", "SCANS", "REPORTS"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`py-3 text-sm font-bold border-b-2 transition-colors ${
+                activeTab === tab
+                  ? "border-blue-600 text-blue-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {!recordsLoading && filteredRecordsList.length > 0 && (
+          <div className="space-y-8 mt-2">
             {Object.entries(groupedRecords).map(([monthLabel, monthRecords]) => (
               <div key={monthLabel}>
                 <div className="mb-4 flex items-center justify-between">
@@ -249,7 +314,9 @@ function PatientMedicalRecords() {
                       onDelete={setDeleteCandidate}
                       viewing={viewingRecordId === record?.id}
                       deleting={deletingRecordId === record?.id}
+                      onRefresh={() => fetchRecords(true)}
                       showDelete
+                      allowQr={true}
                     />
                   ))}
                 </div>

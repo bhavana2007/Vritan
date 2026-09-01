@@ -1,274 +1,234 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-import { API_BASE, parseFastApiDetail } from "../api";
+import { apiClient } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import DoctorSidebar from "../components/DoctorSidebar";
 
 function DoctorPatients() {
   const { token } = useAuth();
   const navigate = useNavigate();
-  const [patientUid, setPatientUid] = useState("");
-  const [patientResult, setPatientResult] = useState(null);
-  const [accessStatus, setAccessStatus] = useState(null);
-  const [searchMessage, setSearchMessage] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [requesting, setRequesting] = useState(false);
 
-  const checkAccessStatus = useCallback(async (uid) => {
-    if (!uid) return;
-    try {
-      const response = await fetch(
-        `${API_BASE}/doctor/patient/${encodeURIComponent(uid)}/access-status`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(parseFastApiDetail(data));
+  const [activeTab, setActiveTab] = useState("all"); // 'all', 'today', 'pending', 'recent'
+  const [searchMode, setSearchMode] = useState("id"); // 'id', 'name', 'mobile'
+  const [searchQuery, setSearchQuery] = useState("");
+  const [patientsList, setPatientsList] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState(null);
+  const [searchMsg, setSearchMsg] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPatients = async () => {
+      try {
+        setLoading(true);
+        // Fetch approved and pending patients
+        const [approved, pending] = await Promise.all([
+          apiClient.get("/doctor/patients/approved").catch(() => []),
+          apiClient.get("/doctor/patients/pending-requests").catch(() => []),
+        ]);
+        
+        const formatPatient = (p, status) => ({
+          id: p.id,
+          uid: p.patient_uid,
+          name: p.patient_name || p.full_name,
+          gender: p.gender || "Unknown",
+          age: p.age || "N/A",
+          mobile: p.mobile || "N/A",
+          status: status,
+          last_visit: p.created_at ? new Date(p.created_at).toLocaleDateString() : "Unknown",
+        });
+
+        const formattedApproved = (Array.isArray(approved) ? approved : []).map(p => formatPatient(p, "Approved Access"));
+        const formattedPending = (Array.isArray(pending) ? pending : []).map(p => formatPatient(p, "Pending Consent"));
+        
+        setPatientsList([...formattedApproved, ...formattedPending]);
+      } catch (err) {
+        console.error("Failed to load patients:", err);
+      } finally {
+        setLoading(false);
       }
-      setAccessStatus(data);
-    } catch (err) {
-      setAccessStatus(null);
+    };
+    if (token) {
+      fetchPatients();
     }
   }, [token]);
 
-  async function handlePatientSearch(e) {
+  const handleSearchSubmit = async (e) => {
     e.preventDefault();
-    const uid = patientUid.trim();
-    if (!uid) {
-      setSearchMessage("Please enter a Patient ID.");
-      setPatientResult(null);
-      setAccessStatus(null);
-      return;
-    }
+    if (!searchQuery.trim()) return;
 
     setSearching(true);
-    setSearchMessage("");
-    setPatientResult(null);
-    setAccessStatus(null);
+    setSearchMsg("");
+    setSearchResult(null);
 
     try {
-      const response = await fetch(
-        `${API_BASE}/doctor/patient/${encodeURIComponent(uid)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(parseFastApiDetail(data));
+      // API call to search patient by ID/Name/Mobile
+      let queryUrl = `/doctor/patient-search?query=${encodeURIComponent(searchQuery)}`;
+      // backend /doctor/patient-search only takes query and limit
+      const data = await apiClient.get(queryUrl);
+      
+      if (Array.isArray(data) && data.length > 0) {
+        setSearchResult(data[0]); // Just pick the first match for the UI card
+      } else {
+        setSearchMsg("No matching patient record found.");
       }
-      setPatientResult(data);
-      await checkAccessStatus(uid);
-    } catch (error) {
-      setSearchMessage(
-        error instanceof Error ? error.message : "Could not search patient.",
-      );
+    } catch (err) {
+      setSearchMsg("No matching patient record found.");
     } finally {
       setSearching(false);
     }
-  }
+  };
 
-  async function handleRequestAccess() {
-    if (!patientResult?.patient_uid) return;
-    setRequesting(true);
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/doctor/request-access/${encodeURIComponent(
-          patientResult.patient_uid,
-        )}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(parseFastApiDetail(data));
-      }
-      await checkAccessStatus(patientResult.patient_uid);
-    } catch (error) {
-      setSearchMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not create access request.",
-      );
-    } finally {
-      setRequesting(false);
-    }
-  }
-
-  function handleOpenPatientRecord() {
-    if (patientResult && accessStatus?.status === "approved") {
-      navigate(`/doctor/patient/${patientResult.patient_uid}`);
-    }
-  }
-
-  function getStatusBadge(status) {
-    const statusConfig = {
-      none: { label: "No Permission", color: "bg-gray-100 text-gray-800" },
-      pending: { label: "Waiting Approval", color: "bg-yellow-100 text-yellow-800" },
-      approved: { label: "Approved", color: "bg-green-100 text-green-800" },
-      denied: { label: "Denied", color: "bg-red-100 text-red-800" },
-      expired: { label: "Expired", color: "bg-gray-100 text-gray-800" },
-    };
-    const config = statusConfig[status] || statusConfig.none;
-    return (
-      <span className={`px-3 py-1 rounded-full text-sm font-medium ${config.color}`}>
-        {config.label}
-      </span>
-    );
-  }
-
-  function calculateAge(dateOfBirth) {
-    if (!dateOfBirth) return "N/A";
-    const today = new Date();
-    const birthDate = new Date(dateOfBirth);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    return age;
-  }
+  const filteredPatients = patientsList.filter((p) => {
+    if (activeTab === "today") return p.last_visit === "Today";
+    if (activeTab === "pending") return p.status === "Pending Consent";
+    if (activeTab === "recent") return p.last_visit !== "Today";
+    return true;
+  });
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <DoctorSidebar currentPage="patients" />
+    <div className="flex h-screen bg-slate-100 font-sans text-slate-800">
+      <DoctorSidebar />
 
-      <main className="flex-1 ml-64 p-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Patients</h1>
-            <p className="mt-2 text-gray-600">Search for patients and request access to their records.</p>
+      <main className="flex-1 overflow-y-auto p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                Patient Directory & Access Control
+              </h1>
+              <p className="text-sm text-slate-500 mt-1 font-medium">
+                Lookup medical records, view active patients, and request data-sharing consent.
+              </p>
+            </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Search Patient</h2>
-            <form onSubmit={handlePatientSearch} className="flex gap-3">
+          {/* Search Bar with Mode Selector */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+              <span>🔍</span> Patient Search Directory
+            </h2>
+
+            <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
+              <select
+                value={searchMode}
+                onChange={(e) => setSearchMode(e.target.value)}
+                className="px-4 py-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 sm:w-48"
+              >
+                <option value="id">Search by Patient ID</option>
+                <option value="name">Search by Full Name</option>
+                <option value="mobile">Search by Mobile Number</option>
+              </select>
+
               <input
                 type="text"
-                placeholder="Enter Patient ID (e.g., PAT-000123)"
-                value={patientUid}
-                onChange={(e) => setPatientUid(e.target.value)}
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={
+                  searchMode === "id" ? "e.g. VRN-001042" :
+                  searchMode === "name" ? "e.g. John Doe" : "e.g. 9876543210"
+                }
+                className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
               />
+
               <button
                 type="submit"
                 disabled={searching}
-                className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:bg-gray-400 transition-colors font-medium"
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors shadow-sm disabled:opacity-50"
               >
-                {searching ? "Searching..." : "Search"}
+                {searching ? "Searching..." : "Search Patient"}
               </button>
             </form>
 
-            {searchMessage ? (
-              <div className={`mt-4 p-4 rounded-lg ${
-                searchMessage.includes("not found") || searchMessage.includes("error")
-                  ? "bg-red-50 text-red-700 border border-red-200"
-                  : "bg-blue-50 text-blue-700 border border-blue-200"
-              }`}>
-                {searchMessage}
+            {searchMsg && (
+              <p className="mt-3 p-3 bg-red-50 text-red-700 rounded-xl text-xs font-semibold">{searchMsg}</p>
+            )}
+
+            {searchResult && (
+              <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex justify-between items-center">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">{searchResult.name} ({searchResult.uid})</h4>
+                  <p className="text-xs text-slate-600">{searchResult.gender} • {searchResult.age} Yrs • Mobile: {searchResult.mobile}</p>
+                </div>
+                <button
+                  onClick={() => navigate(`/doctor/patient/${searchResult.uid}`)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm"
+                >
+                  View Medical Record &rarr;
+                </button>
               </div>
-            ) : null}
+            )}
           </div>
 
-          {patientResult ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">Patient Profile</h2>
-                {accessStatus && getStatusBadge(accessStatus.status)}
-              </div>
+          {/* Directory Tabs */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="flex border-b border-slate-200 bg-slate-50 px-4 pt-3 gap-2">
+              {[
+                { id: "all", label: "All Directory Patients" },
+                { id: "today", label: "Today's Patients" },
+                { id: "pending", label: "Pending Consent Requests" },
+                { id: "recent", label: "Recently Viewed" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all ${
+                    activeTab === tab.id
+                      ? "bg-white text-emerald-700 border-t-2 border-t-emerald-600 border-x border-slate-200 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Patient Name</p>
-                  <p className="text-lg font-semibold text-gray-900">{patientResult.full_name}</p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Patient ID</p>
-                  <p className="text-lg font-semibold text-gray-900">{patientResult.patient_uid}</p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Age</p>
-                  <p className="text-lg font-semibold text-gray-900">{calculateAge(patientResult.date_of_birth)}</p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Gender</p>
-                  <p className="text-lg font-semibold text-gray-900">{patientResult.gender || "N/A"}</p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Blood Group</p>
-                  <p className="text-lg font-semibold text-gray-900">{patientResult.blood_group || "N/A"}</p>
-                </div>
-              </div>
-
-              <div className="border-t border-gray-200 pt-6">
-                {accessStatus?.status === "none" && (
-                  <button
-                    onClick={handleRequestAccess}
-                    disabled={requesting}
-                    className="w-full px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:bg-gray-400 transition-colors font-medium"
-                  >
-                    {requesting ? "Requesting..." : "Request Access"}
-                  </button>
-                )}
-
-                {accessStatus?.status === "pending" && (
-                  <div className="text-center">
-                    <p className="text-gray-600 mb-4">Waiting for patient approval...</p>
-                    <button
-                      onClick={() => checkAccessStatus(patientResult.patient_uid)}
-                      className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                    >
-                      Check Status
-                    </button>
-                  </div>
-                )}
-
-                {accessStatus?.status === "approved" && (
-                  <button
-                    onClick={handleOpenPatientRecord}
-                    className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-                  >
-                    Open Patient Record
-                  </button>
-                )}
-
-                {accessStatus?.status === "denied" && (
-                  <div className="text-center">
-                    <p className="text-red-600 mb-4">Patient denied this access request.</p>
-                    <button
-                      onClick={handleRequestAccess}
-                      disabled={requesting}
-                      className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:bg-gray-400 transition-colors font-medium"
-                    >
-                      {requesting ? "Requesting..." : "Request Access Again"}
-                    </button>
-                  </div>
-                )}
-
-                {accessStatus?.status === "expired" && (
-                  <button
-                    onClick={handleRequestAccess}
-                    disabled={requesting}
-                    className="w-full px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:bg-gray-400 transition-colors font-medium"
-                  >
-                    {requesting ? "Requesting..." : "Request Access Again"}
-                  </button>
-                )}
+            {/* Patients List Table */}
+            <div className="p-6">
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-xs">
+                    <tr>
+                      <th className="p-3.5">Patient ID</th>
+                      <th className="p-3.5">Name</th>
+                      <th className="p-3.5">Demographics</th>
+                      <th className="p-3.5">Mobile</th>
+                      <th className="p-3.5">Consent Status</th>
+                      <th className="p-3.5">Last Visit</th>
+                      <th className="p-3.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredPatients.map((p) => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3.5 font-mono font-bold text-blue-700">{p.uid}</td>
+                        <td className="p-3.5 font-bold text-slate-900">{p.name}</td>
+                        <td className="p-3.5 text-slate-600 text-xs">{p.gender}, {p.age} Yrs</td>
+                        <td className="p-3.5 text-slate-600 font-mono text-xs">{p.mobile}</td>
+                        <td className="p-3.5">
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            p.status === "Approved Access" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-orange-50 text-orange-700 border border-orange-200"
+                          }`}>
+                            {p.status}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-500 text-xs font-medium">{p.last_visit}</td>
+                        <td className="p-3.5 text-right">
+                          <button
+                            onClick={() => navigate(`/doctor/patient/${p.uid}`)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+                          >
+                            Open EHR &rarr;
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          ) : null}
+          </div>
         </div>
       </main>
     </div>

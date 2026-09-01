@@ -144,7 +144,7 @@ class MedicalDictionary:
         'amlong', 'clopivas', 'ecosprin', 'montair',
         'ventolin', 'asthalin', 'seroflo',
         'thyronorm', 'eltroxin',
-        'thyrox',
+        'thyrox', 'amphotericin', 'amphotericin b',
     }
     
     # WHO Essential Medicines (subset)
@@ -165,6 +165,7 @@ class MedicalDictionary:
         'fluoxetine', 'sertraline',
         'donepezil',
         'multivitamin', 'calcium', 'iron', 'folic acid',
+        'amphotericin', 'amphotericin b',
     }
     
     # Body parts and organs (NEVER medicines)
@@ -240,6 +241,7 @@ class MedicalDictionary:
         'rabepra', 'esome', 'ranitid', 'famoti', 'metron', 'clarith',
         'erythro', 'cipro', 'levof', 'moxif', 'doxyc', 'nimesu', 'aceclo',
         'ketoro', 'trama', 'codei', 'ibupr', 'diclo', 'napro', 'parac',
+        'ampho', 'photer',
     }
     
     @staticmethod

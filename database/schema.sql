@@ -104,10 +104,22 @@ CREATE TABLE IF NOT EXISTS medicines_master (
     name VARCHAR(255) NOT NULL UNIQUE,
     generic_name VARCHAR(255) NULL,
     brand_name VARCHAR(255) NULL,
+    aliases TEXT NULL,
+    dosage_form VARCHAR(100) NULL,
+    strength VARCHAR(100) NULL,
+    unit VARCHAR(50) NULL,
+    route VARCHAR(100) NULL,
+    manufacturer VARCHAR(255) NULL,
+    source VARCHAR(50) NULL,
+    source_id VARCHAR(100) NULL,
     default_strength VARCHAR(100) NULL,
     default_unit VARCHAR(50) NULL,
     default_route VARCHAR(100) NULL,
-    INDEX idx_medicines_master_name (name)
+    INDEX idx_medicines_master_name (name),
+    INDEX idx_medicines_master_generic_name (generic_name),
+    INDEX idx_medicines_master_brand_name (brand_name),
+    INDEX idx_medicines_master_source_id (source, source_id),
+    FULLTEXT INDEX ft_medicines_master_search (name, generic_name, brand_name, aliases, manufacturer)
 );
 
 CREATE TABLE IF NOT EXISTS prescriptions (
@@ -119,6 +131,7 @@ CREATE TABLE IF NOT EXISTS prescriptions (
     clinical_findings TEXT NULL,
     diagnosis TEXT NOT NULL,
     symptoms TEXT NOT NULL,
+    notes TEXT NULL,
     doctor_advice TEXT NULL,
     lifestyle_recommendations TEXT NULL,
     follow_up_notes TEXT NULL,

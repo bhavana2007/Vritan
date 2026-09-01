@@ -80,6 +80,18 @@ class ConfidenceCalculator:
             extracted_data
         )
         
+        # Override with Gemini-provided confidence scores if available
+        gemini_scores = extracted_data.get("confidence_scores", {})
+        if isinstance(gemini_scores, dict):
+            if "doctor_name" in gemini_scores:
+                scores["doctor_confidence"] = float(gemini_scores["doctor_name"])
+            if "hospital" in gemini_scores:
+                scores["hospital_confidence"] = float(gemini_scores["hospital"])
+            if "diagnosis" in gemini_scores:
+                scores["disease_confidence"] = float(gemini_scores["diagnosis"])
+            if "medicines" in gemini_scores:
+                scores["medicine_confidence"] = float(gemini_scores["medicines"])
+
         # Overall confidence (weighted average)
         scores["overall_confidence"] = ConfidenceCalculator._calculate_overall_confidence(
             scores, schema_valid, processing_time, document_type, extracted_data, ocr_text
@@ -232,14 +244,27 @@ class ConfidenceCalculator:
         required_fields = schema.get("required_fields", [])
         optional_fields = schema.get("optional_fields", [])
 
-        filled_required = sum(1 for field in required_fields if extracted_data.get(field))
-        filled_optional = sum(1 for field in optional_fields if extracted_data.get(field))
+        if document_type == "prescription":
+            # For prescriptions, we define a core set of essential fields rather than penalizing missing optional ones like diagnosis.
+            essential_fields = ["medicines", "doctor_name", "hospital", "prescription_date", "patient_name"]
+            filled_essential = sum(1 for field in essential_fields if extracted_data.get(field))
+            # Base completeness on essential fields, with a bonus for extra optional fields
+            essential_score = (filled_essential / len(essential_fields)) * 80 if essential_fields else 80
+            
+            bonus_fields = [f for f in optional_fields if f not in essential_fields]
+            filled_bonus = sum(1 for field in bonus_fields if extracted_data.get(field))
+            bonus_score = (filled_bonus / len(bonus_fields)) * 20 if bonus_fields else 20
+            
+            return min(100.0, essential_score + bonus_score)
+        else:
+            filled_required = sum(1 for field in required_fields if extracted_data.get(field))
+            filled_optional = sum(1 for field in optional_fields if extracted_data.get(field))
 
-        # Required fields are more important
-        required_score = (filled_required / len(required_fields)) * 70 if required_fields else 70
-        optional_score = (filled_optional / len(optional_fields)) * 30 if optional_fields else 30
+            # Required fields are more important
+            required_score = (filled_required / len(required_fields)) * 70 if required_fields else 70
+            optional_score = (filled_optional / len(optional_fields)) * 30 if optional_fields else 30
 
-        return required_score + optional_score
+            return required_score + optional_score
 
     @staticmethod
     def _calculate_consistency(extracted_data: Dict[str, Any], document_type: str) -> float:
@@ -254,8 +279,7 @@ class ConfidenceCalculator:
         if document_type == "prescription":
             if not extracted_data.get("medicines"):
                 score -= 50
-            if not extracted_data.get("doctor_name") and not extracted_data.get("hospital"):
-                score -= 20
+            # We don't penalize missing doctor/hospital here since completeness already handles it softly
 
         elif document_type == "blood_report":
             if not extracted_data.get("parameters"):
@@ -272,7 +296,7 @@ class ConfidenceCalculator:
                 score -= 30
 
         # Check for medicines in non-prescription documents
-        if document_type not in ["prescription", "discharge_summary"]:
+        if document_type not in ["prescription", "discharge_summary", "dental_record", "operative_report", "progress_note"]:
             if extracted_data.get("medicines"):
                 score -= 40  # Penalty for medicines in wrong document type
 

@@ -130,6 +130,31 @@ class QualityValidator:
             elif value is None and min_count > 0:
                 errors.append(f"Missing required field: {field}")
 
+        # Strict completeness check for prescriptions
+        if document_type == "prescription":
+            if not extracted_data.get("diagnosis"):
+                errors.append("Incomplete prescription: Missing diagnosis")
+            
+            doctor = extracted_data.get("doctor_name", "")
+            hospital = extracted_data.get("hospital", "")
+            if not doctor and not hospital:
+                errors.append("Incomplete prescription: Missing doctor name and hospital")
+                
+            medicines = extracted_data.get("medicines", [])
+            unverified_medicines = extracted_data.get("unverified_medicines", [])
+            all_medicines = medicines + unverified_medicines
+            if all_medicines:
+                for med in all_medicines:
+                    med_name = med.get("name", "Unknown Medicine")
+                    if not med.get("dosage"):
+                        errors.append(f"Incomplete prescription: Missing dosage for {med_name}")
+                    if not med.get("frequency"):
+                        errors.append(f"Incomplete prescription: Missing frequency for {med_name}")
+                    if not med.get("duration"):
+                        errors.append(f"Incomplete prescription: Missing duration for {med_name}")
+            else:
+                errors.append("Incomplete prescription: No medicines found")
+
         return errors
 
     @staticmethod
@@ -142,8 +167,9 @@ class QualityValidator:
 
         # Check medicines for impossible names
         medicines = extracted_data.get("medicines", [])
-        if medicines:
-            for med in medicines:
+        unverified = extracted_data.get("unverified_medicines", [])
+        if medicines or unverified:
+            for med in medicines + unverified:
                 med_name = med.get("name", "").lower()
                 if med_name in QualityValidator.IMPOSSIBLE_MEDICINES:
                     errors.append(f"Impossible medicine name: {med_name}")
@@ -177,8 +203,9 @@ class QualityValidator:
 
         # Check if extracted medicines appear in OCR
         medicines = extracted_data.get("medicines", [])
-        if medicines:
-            for med in medicines:
+        unverified = extracted_data.get("unverified_medicines", [])
+        if medicines or unverified:
+            for med in medicines + unverified:
                 med_name = med.get("name", "").lower()
                 # Allow for some OCR variations (remove special chars)
                 med_name_clean = re.sub(r'[^a-z0-9]', '', med_name)
@@ -211,13 +238,14 @@ class QualityValidator:
         Attempt to recover from validation errors.
         
         Recovery strategies:
-        1. Remove impossible medicines
-        2. Fill in missing fields with empty values
-        3. Clean up obviously wrong values
+        1. Remove impossible medicines from verified & unverified
+        2. Promote unverified medicines to verified with manual review if no verified exist
+        3. Fill in missing fields with empty values
+        4. Clean up obviously wrong values
         """
         recovered_data = extracted_data.copy()
 
-        # Remove impossible medicines
+        # Remove impossible medicines from verified
         medicines = recovered_data.get("medicines", [])
         if medicines:
             valid_medicines = []
@@ -226,6 +254,27 @@ class QualityValidator:
                 if med_name not in QualityValidator.IMPOSSIBLE_MEDICINES:
                     valid_medicines.append(med)
             recovered_data["medicines"] = valid_medicines
+
+        # Remove impossible medicines from unverified
+        unverified = recovered_data.get("unverified_medicines", [])
+        if unverified:
+            valid_unverified = []
+            for med in unverified:
+                med_name = med.get("name", "").lower()
+                if med_name not in QualityValidator.IMPOSSIBLE_MEDICINES:
+                    valid_unverified.append(med)
+            recovered_data["unverified_medicines"] = valid_unverified
+
+        # Promote unverified medicines if no verified medicines exist
+        medicines = recovered_data.get("medicines", [])
+        unverified = recovered_data.get("unverified_medicines", [])
+        if not medicines and unverified:
+            promoted_medicines = []
+            for med in unverified:
+                med_copy = med.copy()
+                med_copy["requires_manual_review"] = True
+                promoted_medicines.append(med_copy)
+            recovered_data["medicines"] = promoted_medicines
 
         # Ensure required fields exist (even if empty)
         from services.extraction_schemas import EXTRACTION_SCHEMAS

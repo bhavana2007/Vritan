@@ -9,22 +9,48 @@ from typing import Dict, Any
 # JSON schemas for each document type
 EXTRACTION_SCHEMAS = {
     "prescription": {
-        "required_fields": [],  # No strict requirements - Gemini is primary source of truth
-        "optional_fields": ["doctor_name", "hospital", "medicines", "diagnosis", "instructions", "notes"],
+        "required_fields": [],
+        "optional_fields": [
+            "doctor_name", "hospital", "specialization", "patient_name", "age", "gender", 
+            "prescription_date", "diagnosis", "symptoms", "clinical_findings", 
+            "medicines", "lab_parameters", "test_results", "advice", "follow_up_date", 
+            "medical_history", "allergies", "confidence_scores"
+        ],
         "schema": {
             "doctor_name": "string",
             "hospital": "string",
+            "specialization": "string",
+            "patient_name": "string",
+            "age": "string",
+            "gender": "string",
+            "prescription_date": "string (YYYY-MM-DD or as written)",
+            "diagnosis": "string",
+            "symptoms": ["string"],
+            "clinical_findings": ["string"],
             "medicines": [
                 {
                     "name": "string",
                     "dosage": "string",
-                    "duration": "string",
+                    "frequency": "string (e.g. BD, TDS, OD, twice daily)",
+                    "duration": "string (e.g. 5 days, 2 weeks)",
+                    "food_instructions": "string (e.g. after food, before breakfast)",
                     "instructions": "string"
                 }
             ],
-            "diagnosis": "string",
-            "instructions": ["string"],
-            "notes": ["string"]
+            "lab_parameters": ["string"],
+            "test_results": ["string"],
+            "advice": ["string"],
+            "follow_up_date": "string",
+            "medical_history": ["string"],
+            "allergies": ["string"],
+            "confidence_scores": {
+                "doctor_name": "integer (0-100)",
+                "hospital": "integer (0-100)",
+                "specialization": "integer (0-100)",
+                "patient_name": "integer (0-100)",
+                "diagnosis": "integer (0-100)",
+                "medicines": "integer (0-100)"
+            }
         }
     },
     "blood_report": {
@@ -271,7 +297,7 @@ def get_extraction_prompt(document_type: str, ocr_text: str) -> str:
         "prescription": f"""
 You are a medical AI assistant specializing in prescription extraction.
 
-Extract structured information from this prescription OCR text.
+Extract ALL structured information from this prescription OCR text.
 
 OCR Text:
 {ocr_text}
@@ -280,28 +306,50 @@ Return ONLY valid JSON with this exact shape:
 {{
   "doctor_name": "Dr. John Smith",
   "hospital": "City Hospital",
+  "specialization": "Cardiology",
+  "patient_name": "Jane Doe",
+  "age": "34",
+  "gender": "Female",
+  "prescription_date": "2024-01-15",
+  "diagnosis": "Respiratory infection",
+  "symptoms": ["Fever", "Cough", "Sore throat"],
+  "clinical_findings": ["BP 120/80", "Temp 101F"],
   "medicines": [
     {{
       "name": "Azithromycin",
       "dosage": "500mg",
+      "frequency": "OD (Once daily)",
       "duration": "5 days",
-      "instructions": "Take once daily after food"
+      "food_instructions": "Take after food",
+      "instructions": "Complete the full course"
     }}
   ],
-  "diagnosis": "Respiratory infection",
-  "instructions": ["Complete full course", "Take with food"],
-  "notes": ["Follow up after 5 days"]
+  "lab_parameters": ["CBC", "CRP"],
+  "test_results": ["Elevated WBC"],
+  "advice": ["Avoid cold drinks"],
+  "follow_up_date": "2024-01-20",
+  "medical_history": ["Asthma"],
+  "allergies": ["Penicillin"],
+  "confidence_scores": {{
+    "doctor_name": 98,
+    "hospital": 87,
+    "specialization": 95,
+    "patient_name": 99,
+    "diagnosis": 92,
+    "medicines": 99
+  }}
 }}
 
 CRITICAL RULES:
-- Extract ALL medicines with their exact names (including brand names)
-- Medicine prefixes to recognize: Tab, Tablet, Cap, Capsule, Syp, Syrup, Inj, Injection, Drop, Cream, Ointment
-- Dosage formats: 500mg, 5mg, 1-0-1, BD, TDS, OD, etc.
-- Duration formats: 7 days, 2 weeks, etc.
-- Instructions: after food, before breakfast, etc.
-- NEVER extract body parts, examination findings, or lab values as medicines
-- Support English, Hindi, and mixed language
-- Return valid JSON only, no markdown, no explanations
+- Extract doctor name, hospital, and specialization from letterhead or signature.
+- Extract patient name, age, gender.
+- Extract prescription_date.
+- Extract diagnosis, symptoms, clinical_findings, medical_history, and allergies.
+- Extract ALL medicines with exact names, dosage, frequency, duration, food_instructions.
+- Never extract body parts or lab values as medicines.
+- Provide a confidence_score (0-100) integer for each key field in the confidence_scores object based on how clearly it was present in the OCR text.
+- If a field is not found, use null for strings and [] for arrays.
+- Return valid JSON ONLY, no markdown fences, no explanations.
 """,
 
         "blood_report": f"""

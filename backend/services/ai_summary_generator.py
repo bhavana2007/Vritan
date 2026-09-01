@@ -17,7 +17,8 @@ class AISummaryGenerator:
         medicines: List[Dict[str, str]],
         conditions: List[str],
         doctor_name: str,
-        hospital: str
+        hospital: str,
+        ai_status: str = "AI_COMPLETED"
     ) -> Dict[str, str]:
         """
         Generate a comprehensive patient-friendly summary.
@@ -29,6 +30,7 @@ class AISummaryGenerator:
             conditions: List of conditions
             doctor_name: Doctor name
             hospital: Hospital name
+            ai_status: Processing status of the AI
             
         Returns:
             Dictionary with summary components
@@ -69,8 +71,87 @@ class AISummaryGenerator:
                 document_type, extracted_data, medicines, conditions, doctor_name, hospital
             )
         
+        if ai_status == "AI_PROVIDER_UNAVAILABLE":
+            summary_parts["summary"] = "AI summary unavailable. Local fallback processing was used."
+        
         return summary_parts
     
+    @staticmethod
+    def _format_medicines_summary(
+        extracted_data: Dict[str, Any],
+        medicines: List[Dict[str, str]],
+        prefix: str = "Medicines prescribed: "
+    ) -> str:
+        """Helper to format medicines, distinguishing between verified and unverified medicines."""
+        verified = extracted_data.get("verified_medicines", [])
+        unverified = extracted_data.get("unverified_medicines", [])
+        
+        verified_list = []
+        unverified_list = []
+        
+        if verified or unverified:
+            verified_list = list(verified)
+            unverified_list = list(unverified)
+        else:
+            for med in medicines:
+                if med.get("unverified") or med.get("requires_manual_review"):
+                    unverified_list.append(med)
+                else:
+                    verified_list.append(med)
+                    
+        if verified_list or unverified_list:
+            parts = []
+            if verified_list:
+                med_list = []
+                for med in verified_list[:10]:
+                    name = med.get("name", "")
+                    dosage = med.get("dosage", "")
+                    duration = med.get("duration", "")
+                    med_str = name
+                    if dosage:
+                        med_str += f" ({dosage})"
+                    if duration:
+                        med_str += f" for {duration}"
+                    med_list.append(med_str)
+                parts.append("Verified: " + ", ".join(med_list))
+            
+            if unverified_list:
+                med_list = []
+                for med in unverified_list[:10]:
+                    name = med.get("name", "")
+                    dosage = med.get("dosage", "")
+                    duration = med.get("duration", "")
+                    med_str = name
+                    if dosage:
+                        med_str += f" ({dosage})"
+                    if duration:
+                        med_str += f" for {duration}"
+                    med_list.append(med_str)
+                parts.append("Unverified: " + ", ".join(med_list))
+                
+            return prefix + " | ".join(parts)
+        else:
+            if medicines:
+                med_list = []
+                for med in medicines[:10]:
+                    name = med.get("name", "")
+                    dosage = med.get("dosage", "")
+                    duration = med.get("duration", "")
+                    med_str = name
+                    if dosage:
+                        med_str += f" ({dosage})"
+                    if duration:
+                        med_str += f" for {duration}"
+                    med_list.append(med_str)
+                return prefix + ", ".join(med_list)
+                
+        if "discharge" in prefix.lower():
+            return "No discharge medicines listed."
+        elif "mentioned" in prefix.lower():
+            return ""
+        else:
+            return "No medicines extracted."
+
     @staticmethod
     def _generate_prescription_summary(
         extracted_data: Dict[str, Any],
@@ -91,21 +172,9 @@ class AISummaryGenerator:
             diagnosis_text = "No specific diagnosis mentioned."
         
         # Medicines
-        if medicines:
-            med_list = []
-            for med in medicines[:10]:  # Limit to 10 medicines
-                name = med.get("name", "")
-                dosage = med.get("dosage", "")
-                duration = med.get("duration", "")
-                med_str = name
-                if dosage:
-                    med_str += f" ({dosage})"
-                if duration:
-                    med_str += f" for {duration}"
-                med_list.append(med_str)
-            medicines_text = "Medicines prescribed: " + ", ".join(med_list)
-        else:
-            medicines_text = "No medicines extracted."
+        medicines_text = AISummaryGenerator._format_medicines_summary(
+            extracted_data, medicines, "Medicines prescribed: "
+        )
         
         # Doctor
         doctor_text = f"Prescribed by: {doctor_name}" if doctor_name else "Doctor name not available."
@@ -275,11 +344,9 @@ class AISummaryGenerator:
         diagnosis_text = f"Primary diagnosis: {diagnosis}" if diagnosis else "Discharge summary available."
         
         # Medicines
-        if medicines:
-            med_list = [med.get("name", "") for med in medicines[:10]]
-            medicines_text = "Discharge medicines: " + ", ".join(med_list)
-        else:
-            medicines_text = "No discharge medicines listed."
+        medicines_text = AISummaryGenerator._format_medicines_summary(
+            extracted_data, medicines, "Discharge medicines: "
+        )
         
         doctor_text = f"Attending doctor: {doctor_name}" if doctor_name else ""
         hospital_text = f"Hospital: {hospital}" if hospital != "Unknown" else ""
@@ -319,11 +386,9 @@ class AISummaryGenerator:
         diagnosis_text = diagnosis if diagnosis else "Medical report details available."
         
         # Medicines
-        if medicines:
-            med_list = [med.get("name", "") for med in medicines[:5]]
-            medicines_text = "Medicines mentioned: " + ", ".join(med_list)
-        else:
-            medicines_text = ""
+        medicines_text = AISummaryGenerator._format_medicines_summary(
+            extracted_data, medicines, "Medicines mentioned: "
+        )
         
         doctor_text = f"Doctor: {doctor_name}" if doctor_name else ""
         hospital_text = f"Facility: {hospital}" if hospital != "Unknown" else ""

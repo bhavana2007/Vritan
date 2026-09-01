@@ -90,7 +90,8 @@ class MedicineExtractor:
         'clonazepam', 'diazepam', 'lorazepam', 'zolpidem', 'eszopiclone',
         'donepezil', 'rivastigmine', 'memantine', 'piracetam', 'citicolin',
         'multivitamin', 'vitamin', 'calcium', 'iron', 'folic', 'acid',
-        'omega', 'fish', 'oil', 'protein', 'probiotic', 'lactobacillus'
+        'omega', 'fish', 'oil', 'protein', 'probiotic', 'lactobacillus',
+        'amphotericin', 'amphotericin b'
     }
 
     @staticmethod
@@ -175,6 +176,19 @@ class MedicineExtractor:
         # Reject if it's clearly not a medicine
         if reason in ["body_part", "examination_term", "ocr_garbage", "common_english", "too_short", "mostly_symbols"]:
             return False
+            
+        # Reject generic brand name pattern if it lacks high confidence medical indicators
+        if reason == "brand_name_pattern":
+            name_lower = name.lower()
+            has_medical_indicator = (
+                any(suffix in name_lower for suffix in MedicalDictionary.MEDICINE_SUFFIXES) or
+                any(root in name_lower for root in MedicalDictionary.MEDICINE_ROOTS) or
+                name_lower in MedicineExtractor.KNOWN_MEDICINES or
+                name_lower in MedicalDictionary.INDIAN_MEDICINES or
+                name_lower in MedicalDictionary.WHO_ESSENTIAL
+            )
+            if not has_medical_indicator:
+                return False
         
         # Accept if validated by dictionary
         if is_valid:

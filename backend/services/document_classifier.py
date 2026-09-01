@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent"
@@ -125,6 +125,42 @@ DOCUMENT_TYPES = {
         "extract_medicines": False,
         "description": "Other medical document"
     },
+    "dental_record": {
+        "icon": "🦷",
+        "display_name": "Dental Record",
+        "extract_medicines": True,
+        "description": "Dental examination and treatment records"
+    },
+    "eye_prescription": {
+        "icon": "👁️",
+        "display_name": "Eye Prescription",
+        "extract_medicines": False,
+        "description": "Ophthalmology or optometry prescription"
+    },
+    "diet_plan": {
+        "icon": "🥗",
+        "display_name": "Diet Plan",
+        "extract_medicines": False,
+        "description": "Nutritionist diet and lifestyle plan"
+    },
+    "physiotherapy_report": {
+        "icon": "🏃",
+        "display_name": "Physiotherapy Report",
+        "extract_medicines": False,
+        "description": "Physical therapy assessment or plan"
+    },
+    "operative_report": {
+        "icon": "🔪",
+        "display_name": "Operative Report",
+        "extract_medicines": True,
+        "description": "Surgical procedure notes"
+    },
+    "progress_note": {
+        "icon": "📝",
+        "display_name": "Progress Note",
+        "extract_medicines": True,
+        "description": "Doctor's ongoing observation note"
+    },
     "not_medical_document": {
         "icon": "❌",
         "display_name": "Not Medical",
@@ -200,31 +236,64 @@ DOCUMENT_KEYWORDS = {
     "general_medical_report": [
         "medical report", "clinical", "examination", "diagnosis", "history",
         "symptoms", "patient", "doctor"
+    ],
+    "dental_record": [
+        "dental", "tooth", "teeth", "cavity", "extraction", "scaling", "dentist", "caries"
+    ],
+    "eye_prescription": [
+        "eye", "vision", "lens", "glasses", "sph", "cyl", "axis", "optometrist", "ophthalmologist", "pupil"
+    ],
+    "diet_plan": [
+        "diet", "nutrition", "meal", "breakfast", "lunch", "dinner", "calories", "protein", "carbs"
+    ],
+    "physiotherapy_report": [
+        "physiotherapy", "physical therapy", "exercise", "range of motion", "rehabilitation", "muscle"
+    ],
+    "operative_report": [
+        "surgery", "operative", "anesthesia", "incision", "surgeon", "procedure", "post-op", "pre-op"
+    ],
+    "progress_note": [
+        "progress", "soap", "subjective", "objective", "assessment", "plan", "follow-up visit"
     ]
 }
 
 
 def _extract_json_object(value: str) -> dict[str, Any] | None:
-    """Extract JSON from Gemini response, handling markdown code blocks."""
+    """Extract JSON from Gemini response, handling markdown code blocks and conversational prefixes."""
     text = value.strip()
-    text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"```$", "", text).strip()
-
+    
+    # Try direct parsing first
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+        
+    # Remove markdown formatting if present
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
+    
     try:
         parsed = json.loads(text)
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        return None
+    # Find the outermost JSON object
+    # Using find and rfind to be robust against newlines and nested braces
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        json_str = text[first_brace:last_brace+1]
+        try:
+            parsed = json.loads(json_str)
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError as e:
+            print(f"[CLASSIFIER] JSON extraction failed. Error: {e}. Truncated preview: {json_str[:100]}...")
+            return None
 
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 def classify_document_heuristic(ocr_text: str) -> tuple[str, float]:
@@ -290,6 +359,12 @@ Classify into ONE of these categories:
 - ecg_report: Electrocardiogram report
 - ultrasound_report: Ultrasound scan report
 - general_medical_report: General medical report
+- dental_record: Dental examination and treatment records
+- eye_prescription: Ophthalmology or optometry prescription
+- diet_plan: Nutritionist diet and lifestyle plan
+- physiotherapy_report: Physical therapy assessment or plan
+- operative_report: Surgical procedure notes
+- progress_note: Doctor's ongoing observation note
 - other_medical_document: Other medical document
 - not_medical_document: Non-medical document (receipts, random text, etc.)
 

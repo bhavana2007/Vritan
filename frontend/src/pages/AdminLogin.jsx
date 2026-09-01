@@ -11,7 +11,7 @@ function isValidEmail(value) {
 function AdminLogin() {
   const { bootstrapped, isAuthenticated, loginAdmin, user } = useAuth();
   const location = useLocation();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,9 +35,16 @@ function AdminLogin() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    const normalizedEmail = email.trim().toLowerCase();
+    let cleanIdentifier = identifier.trim().toLowerCase();
+    
+    // Strip markdown if accidentally pasted (e.g., [email](mailto:email))
+    const mdMatch = cleanIdentifier.match(/\[(.*?)\]\(.*?\)/);
+    if (mdMatch) {
+      cleanIdentifier = mdMatch[1];
+    }
+    const normalizedIdentifier = cleanIdentifier.replace("mailto:", "");
 
-    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+    if (!normalizedIdentifier || !isValidEmail(normalizedIdentifier)) {
       setErrorMessage("Enter a valid admin email.");
       return;
     }
@@ -50,18 +57,14 @@ function AdminLogin() {
     setLoading(true);
 
     try {
-      console.log("LOGIN STARTED - Attempting admin login");
-      const loggedInUser = await loginAdmin(normalizedEmail, password);
-      console.log("LOGIN RESPONSE:", loggedInUser);
+      const loggedInUser = await loginAdmin(normalizedIdentifier, password);
       if (!loggedInUser || loggedInUser.role !== "admin") {
         throw new Error("Admin access required.");
       }
       const from = location.state?.from;
       const target = from && from.startsWith("/admin") ? from : "/admin";
-      console.log("LOGIN SUCCESS - Redirecting to:", target);
       setPostLoginTarget(target);
     } catch (error) {
-      console.error("LOGIN FAILED:", error);
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -76,14 +79,15 @@ function AdminLogin() {
     <div className="med-auth-page">
       <div className="w-full max-w-md med-card p-5 sm:p-8">
         <div className="mb-6 text-center">
-          <div className="med-brand">
-            <img src="/logo.png" alt="MediLocker" className="med-logo" />
-            <div className="text-left">
-              <h1 className="med-title text-3xl">MediLocker</h1>
-              <p className="text-sm med-muted">Admin Control Center</p>
-            </div>
+          <div className="flex flex-col items-center justify-center">
+            <img
+              src="/image(236).png"
+              alt="Vritan"
+              className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain"
+            />
           </div>
-          <p className="mt-4 text-sm med-muted">
+          <h1 className="mt-4 med-title text-xl font-semibold">Admin Control Center</h1>
+          <p className="mt-2 text-sm med-muted">
             Secure administrator access for doctor verification and platform oversight.
           </p>
         </div>
@@ -93,8 +97,8 @@ function AdminLogin() {
             type="email"
             autoComplete="email"
             placeholder="Admin email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            value={identifier}
+            onChange={(event) => setIdentifier(event.target.value)}
             disabled={loading}
             className="med-input"
           />

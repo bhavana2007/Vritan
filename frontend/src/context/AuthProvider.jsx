@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   adminAuthService,
   doctorAuthService,
   patientAuthService,
+  labAuthService,
 } from "../services/authService";
 import { AuthContext } from "./authContext";
 
@@ -14,21 +15,17 @@ function readStoredSession() {
   try {
     const storedToken = localStorage.getItem(STORAGE_TOKEN);
     const storedUser = localStorage.getItem(STORAGE_USER);
-    console.log("AUTH PROVIDER - Reading from localStorage - token:", storedToken ? "exists" : "missing", "user:", storedUser ? "exists" : "missing");
     if (storedToken && storedUser) {
       const parsedUser = JSON.parse(storedUser);
-      console.log("AUTH PROVIDER - Parsed user:", parsedUser);
       return {
         token: storedToken,
         user: parsedUser,
       };
     }
-  } catch (error) {
-    console.error("AUTH PROVIDER - Error reading stored session:", error);
+  } catch {
     localStorage.removeItem(STORAGE_TOKEN);
     localStorage.removeItem(STORAGE_USER);
   }
-  console.log("AUTH PROVIDER - No stored session found");
   return { token: null, user: null };
 }
 
@@ -36,49 +33,45 @@ export function AuthProvider({ children }) {
   const [state, setState] = useState(() => {
     const { token, user } = readStoredSession();
     return {
-      bootstrapped: false, // Will be set to true after initial session check
+      bootstrapped: true,
       token,
       user,
       isAuthenticated: Boolean(token && user),
+      profiles: user?.profiles || [],
+      activeProfileId: localStorage.getItem("vritan_active_profile_id") || (user?.profiles?.[0]?.id || null)
     };
   });
-
-  // Effect to bootstrap the auth state
-  // This runs once on mount to set bootstrapped to true
-  // and can re-run if token or user change to re-evaluate isAuthenticated.
-  // This ensures that ProtectedRoute doesn't redirect before the initial
-  // session check from localStorage is complete.
-  useEffect(() => {
-    setState((prevState) => ({
-      ...prevState,
-      bootstrapped: true,
-    }));
-  }, []); // Run only once on mount
-
-  useEffect(() => {
-    setState((prevState) => ({
-      ...prevState,
-      isAuthenticated: Boolean(prevState.token && prevState.user),
-    }));
-  }, [state.token, state.user]);
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_TOKEN);
     localStorage.removeItem(STORAGE_USER);
-    setState({ bootstrapped: true, token: null, user: null, isAuthenticated: false });
+    localStorage.removeItem("vritan_active_profile_id");
+    setState({ bootstrapped: true, token: null, user: null, isAuthenticated: false, profiles: [], activeProfileId: null });
+  }, []);
+
+  const switchProfile = useCallback((profileId) => {
+    localStorage.setItem("vritan_active_profile_id", profileId);
+    setState((prevState) => ({
+      ...prevState,
+      activeProfileId: String(profileId)
+    }));
   }, []);
 
   const saveSession = useCallback((data) => {
-    console.log("AUTH PROVIDER - Saving session - access_token:", data.access_token ? "exists" : "missing", "user:", data.user);
     localStorage.setItem(STORAGE_TOKEN, data.access_token);
     localStorage.setItem(STORAGE_USER, JSON.stringify(data.user));
+    const defaultProfileId = data.user?.profiles?.[0]?.id || null;
+    if (defaultProfileId) {
+      localStorage.setItem("vritan_active_profile_id", defaultProfileId);
+    }
     setState((prevState) => ({
       ...prevState,
       token: data.access_token,
       user: data.user,
+      profiles: data.user?.profiles || [],
+      activeProfileId: defaultProfileId ? String(defaultProfileId) : null,
       isAuthenticated: Boolean(data.access_token && data.user),
     }));
-    console.log("AUTH PROVIDER - Session saved, verifying localStorage:", localStorage.getItem(STORAGE_TOKEN) ? "token exists" : "token missing", localStorage.getItem(STORAGE_USER) ? "user exists" : "user missing");
     return data.user;
   }, []);
 
@@ -92,20 +85,33 @@ export function AuthProvider({ children }) {
     return saveSession(data);
   }, [saveSession]);
 
+  const loginLab = useCallback(async (email, password) => {
+    const data = await labAuthService.login(email, password);
+    return saveSession(data);
+  }, [saveSession]);
+
   const loginAdmin = useCallback(async (email, password) => {
     const data = await adminAuthService.login(email, password);
     return saveSession(data);
   }, [saveSession]);
 
+  const activeProfile = useMemo(() => {
+    if (!state.user || !state.profiles.length) return null;
+    return state.profiles.find((p) => String(p.id) === String(state.activeProfileId)) || state.profiles[0];
+  }, [state.user, state.profiles, state.activeProfileId]);
+
   const value = useMemo(
     () => ({
       ...state,
+      activeProfile,
       login,
       loginAdmin,
       loginPatientWithOtp,
+      loginLab,
       logout,
+      switchProfile,
     }),
-    [state, login, loginAdmin, loginPatientWithOtp, logout],
+    [state, activeProfile, login, loginAdmin, loginPatientWithOtp, loginLab, logout, switchProfile],
   );
 
   return (

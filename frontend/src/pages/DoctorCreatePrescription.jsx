@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { API_BASE, parseFastApiDetail } from "../api";
 import { useAuth } from "../hooks/useAuth";
 import DoctorSidebar from "../components/DoctorSidebar";
+import CountdownTimer from "../components/CountdownTimer";
 
 const emptyMedicine = () => ({
   medicine_name: "",
@@ -48,6 +49,15 @@ function DoctorCreatePrescription() {
           throw new Error(parseFastApiDetail(data));
         }
         setPatientData(data);
+
+        // Fetch access status using patient_uid
+        const accessResponse = await fetch(`${API_BASE}/doctor/patient/${encodeURIComponent(data.patient_uid)}/access-status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const accessData = await accessResponse.json().catch(() => ({}));
+        if (accessResponse.ok) {
+          setAccessStatus(accessData);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load patient data");
       } finally {
@@ -58,28 +68,7 @@ function DoctorCreatePrescription() {
     fetchPatientData();
   }, [patientId, token]);
 
-  useEffect(() => {
-    if (!accessStatus?.expires_at) return;
-
-    const updateTimer = () => {
-      const expiresAt = new Date(accessStatus.expires_at);
-      const now = new Date();
-      const diff = expiresAt - now;
-
-      if (diff <= 0) {
-        setAccessTimer("Expired");
-        return;
-      }
-
-      const minutes = Math.floor(diff / 60000);
-      const seconds = Math.floor((diff % 60000) / 1000);
-      setAccessTimer(`${minutes}:${seconds.toString().padStart(2, '0')}`);
-    };
-
-    updateTimer();
-    const timer = setInterval(updateTimer, 1000);
-    return () => clearInterval(timer);
-  }, [accessStatus?.expires_at]);
+  // accessTimer logic replaced by CountdownTimer component
 
   function addMedicine() {
     setMedicines([...medicines, emptyMedicine()]);
@@ -212,7 +201,7 @@ function DoctorCreatePrescription() {
     return (
       <div className="flex min-h-screen bg-gray-50">
         <DoctorSidebar currentPage="prescriptions" />
-        <main className="flex-1 ml-64 p-8">
+        <main className="flex-1 p-8 min-w-0">
           <div className="flex items-center justify-center h-full">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
           </div>
@@ -225,7 +214,7 @@ function DoctorCreatePrescription() {
     return (
       <div className="flex min-h-screen bg-gray-50">
         <DoctorSidebar currentPage="prescriptions" />
-        <main className="flex-1 ml-64 p-8">
+        <main className="flex-1 p-8 min-w-0">
           <div className="max-w-4xl mx-auto">
             <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700 mb-4">
               {error}
@@ -246,7 +235,7 @@ function DoctorCreatePrescription() {
     <div className="flex min-h-screen bg-gray-50">
       <DoctorSidebar currentPage="prescriptions" />
 
-      <main className="flex-1 ml-64 p-8">
+      <main className="flex-1 p-8 min-w-0">
         <div className="max-w-4xl mx-auto">
           <button
             onClick={() => navigate(-1)}
@@ -263,12 +252,13 @@ function DoctorCreatePrescription() {
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900">Patient Information</h2>
-                {accessTimer && (
+                {accessStatus?.expires_at && (
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-600">Access expires in:</span>
-                    <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium">
-                      {accessTimer}
-                    </span>
+                    <CountdownTimer
+                      expiresAt={accessStatus.expires_at}
+                      onExpire={() => setAccessStatus(prev => ({ ...prev, status: "expired" }))}
+                    />
                   </div>
                 )}
               </div>

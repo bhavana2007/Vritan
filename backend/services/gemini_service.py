@@ -13,6 +13,7 @@ from services.document_classifier import (
     classify_document_gemini,
     get_document_type_info,
     should_extract_medicines,
+    classify_document_heuristic,
 )
 
 from services.ocr_cleaner import OCRCleaner
@@ -40,7 +41,7 @@ from services.title_generator import TitleGenerator
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent"
@@ -68,26 +69,41 @@ def _empty_result(cleaned_text: str = "") -> dict[str, Any]:
 
 
 def _extract_json_object(value: str) -> dict[str, Any] | None:
-    """Extract JSON from Gemini response, handling markdown code blocks."""
+    """Extract JSON from Gemini response, handling markdown code blocks and conversational prefixes."""
     text = value.strip()
-    text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"```$", "", text).strip()
-
+    
+    # Try direct parsing first
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+        
+    # Remove markdown formatting if present
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
+    
     try:
         parsed = json.loads(text)
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        return None
+    # Find the outermost JSON object
+    # Using find and rfind to be robust against newlines and nested braces
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        json_str = text[first_brace:last_brace+1]
+        try:
+            parsed = json.loads(json_str)
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError as e:
+            print(f"[AI] JSON extraction failed. Error: {e}. Truncated preview: {json_str[:100]}...")
+            return None
 
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 def _normalize_medicines(value: Any) -> list[dict[str, str]]:
@@ -116,13 +132,17 @@ def _normalize_medicines(value: Any) -> list[dict[str, str]]:
         if key in seen:
             continue
         seen.add(key)
-        medicines.append(
-            {
-                "name": name,
-                "dosage": dosage,
-                "duration": duration,
-            }
-        )
+        
+        # Build dictionary keeping all properties of item. Since item might have extra fields, let's preserve them!
+        med_dict = {
+            "name": name,
+            "dosage": dosage,
+            "duration": duration,
+        }
+        for k, v in item.items():
+            if k not in med_dict:
+                med_dict[k] = v
+        medicines.append(med_dict)
     return medicines
 
 
@@ -263,6 +283,8 @@ def _normalize_to_legacy_format(
     return {
         "cleaned_text": cleaned_text,
         "medicines": normalized_medicines,
+        "verified_medicines": _normalize_medicines(extracted_data.get("verified_medicines", [])),
+        "unverified_medicines": _normalize_medicines(extracted_data.get("unverified_medicines", [])),
         "possible_conditions": possible_conditions,
         "doctor_or_hospital": doctor_or_hospital,
         "advice": advice,
@@ -499,207 +521,615 @@ def extract_medicines_regex(ocr_text: str) -> list[dict[str, str]]:
     return medicines
 
 
-def structure_medical_text(ocr_text: str | None) -> dict[str, Any]:
-    """
-    Production-grade AI Medical Document Understanding Pipeline.
-    
-    Pipeline:
-    1. Document Classification
-    2. OCR Cleaning
-    3. Document-Specific Extraction
-    4. Schema Validation
-    5. Medicine Extraction (with heuristics)
-    6. Confidence Calculation
-    7. Quality Validation
-    """
-    start_time = time.time()
-    source_text = str(ocr_text or "").strip()
-    
-    if not source_text:
-        return _empty_result()
-    
-    if not GEMINI_API_KEY:
-        print(f"[AI PIPELINE] ERROR: GEMINI_API_KEY not configured")
-        return _empty_result(source_text)
+def sanitize_log_message(msg: str) -> str:
+    if not msg:
+        return ""
+    if GEMINI_API_KEY:
+        msg = msg.replace(GEMINI_API_KEY, "REDACTED")
+    msg = re.sub(r'key=[A-Za-z0-9_\-]+', 'key=REDACTED', msg)
+    return msg
 
-    print(f"[AI PIPELINE] Starting processing (OCR length: {len(source_text)})")
-    
-    # Step 1: Document Classification
-    print(f"[AI PIPELINE] Step 1: Document Classification")
-    classification_result = classify_document_gemini(source_text)
-    document_type = classification_result["document_type"]
-    classification_confidence = classification_result["confidence"]
-    classification_reason = classification_result["reasoning"]
-    
-    print(f"[AI PIPELINE] Classified as: {document_type} (confidence: {classification_confidence:.1f}%)")
-    print(f"[AI PIPELINE] Reason: {classification_reason}")
-    
-    # Reject non-medical documents early
-    if document_type == "not_medical_document":
-        print(f"[AI PIPELINE] REJECTED: Document classified as non-medical")
+
+def get_multimodal_parts(file_path: Path) -> dict | None:
+    suffix = file_path.suffix.lower()
+    mime_map = {
+        ".pdf": "application/pdf",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp"
+    }
+    mime_type = mime_map.get(suffix)
+    if not mime_type:
+        return None
+    try:
+        import base64
+        if suffix == ".pdf":
+            page_0 = file_path.parent / f"{file_path.name}_page_0.jpg"
+            if not page_0.exists():
+                page_0 = file_path.parent / f"{file_path.stem}_page_0.jpg"
+            if page_0.exists():
+                file_path = page_0
+                mime_type = "image/jpeg"
+                print(f"[AI] Gemini: using converted PDF page image instead: {page_0}")
+        
+        data = file_path.read_bytes()
+        if len(data) > 15 * 1024 * 1024:
+            print(f"[AI] Gemini: Image too large to send inline ({len(data)} bytes)")
+            return None
+            
+        base64_data = base64.b64encode(data).decode('utf-8')
         return {
-            **_empty_result(source_text),
-            "document_type": "not_medical_document",
-            "classification": "non-medical",
-            "confidence_score": 0.0,
-            "processing_time": time.time() - start_time,
-            "ocr_quality_score": 0.0,
-            "rejected": True,
-            "rejection_reason": "Document classified as non-medical"
-        }
-    
-    # Step 2: OCR Cleaning
-    print(f"[AI PIPELINE] Step 2: OCR Cleaning")
-    cleaned_text = OCRCleaner.clean(source_text)
-    ocr_quality = OCRCleaner.calculate_ocr_quality(cleaned_text)
-    print(f"[AI PIPELINE] OCR quality score: {ocr_quality:.1f}")
-    
-    # Step 3: Document-Specific Extraction
-    print(f"[AI PIPELINE] Step 3: Document-Specific Extraction")
-    extraction_prompt = get_extraction_prompt(document_type, cleaned_text)
-    
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": extraction_prompt}],
+            "inlineData": {
+                "mimeType": mime_type,
+                "data": base64_data
             }
-        ],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json",
-        },
+        }
+    except Exception as e:
+        print(f"[AI] Gemini: Failed to load image details - {e}")
+        return None
+
+
+def deterministic_extraction(text: str, document_type: str) -> dict[str, Any]:
+    def safe_extract_match(m: re.Match) -> str:
+        try:
+            val = m.group(1)
+            if val is not None:
+                return val.strip()
+        except IndexError:
+            pass
+        try:
+            return m.group(0).strip()
+        except Exception:
+            return ""
+
+    patient_patterns = [
+        r'(?i)patient\s*(?:name)?\s*:\s*([A-Za-z\s.\n]{2,30})',
+        r'(?i)patient\s*:\s*([A-Za-z\s.\n]{2,30})',
+        r'(?i)name\s*:\s*([A-Za-z\s.\n]{2,30})'
+    ]
+    patient_name = ""
+    for p in patient_patterns:
+        try:
+            m = re.search(p, text)
+            if m:
+                candidate = safe_extract_match(m)
+                candidate = candidate.split("\n")[0].strip()
+                if len(candidate) > 2 and not any(kw in candidate.lower() for kw in ["date", "age", "sex", "gender", "prescription"]):
+                    patient_name = candidate
+                    break
+        except Exception as e:
+            print(f"[AI] Deterministic extraction: failed rule patient pattern {p}: {e}")
+
+    doctor_patterns = [
+        r'(?i)doctor\s*(?:name)?\s*:\s*([A-Za-z\s.\n]{2,30})',
+        r'(?i)dr\.\s*([A-Za-z\s.\n]{2,30})',
+        r'(?i)dr\s+([A-Za-z\s.\n]{2,30})',
+        r'(?i)de\.\s*([A-Za-z\s.\n]{2,30})',  # OCR variant
+        r'(?i)physician\s*:\s*([A-Za-z\s.\n]{2,30})'
+    ]
+    doctor_name = ""
+    for p in doctor_patterns:
+        try:
+            m = re.search(p, text)
+            if m:
+                candidate = safe_extract_match(m)
+                candidate = candidate.split("\n")[0].strip()
+                if len(candidate) > 2 and not any(kw in candidate.lower() for kw in ["patient", "hospital", "clinic", "date"]):
+                    if not candidate.lower().startswith("dr.") and "dr" not in candidate.lower()[:3]:
+                        doctor_name = f"Dr. {candidate}"
+                    else:
+                        doctor_name = candidate
+                    break
+        except Exception as e:
+            print(f"[AI] Deterministic extraction: failed rule doctor pattern {p}: {e}")
+
+    hospital_patterns = [
+        r'(?i)hospital\s*(?:name)?\s*:\s*([A-Za-z0-9\s.,\-\n]{3,50})',
+        r'(?i)clinic\s*(?:name)?\s*:\s*([A-Za-z0-9\s.,\-\n]{3,50})',
+        r'(?i)medical\s+center\s*:\s*([A-Za-z0-9\s.,\-\n]{3,50})',
+        r'(?im)^(.{0,50}(?:HOSPITAL|MEDICAL CENTRE|MEDICAL CENTER|CLINIC|HEALTHCARE).{0,50})$'
+    ]
+    hospital = ""
+    for p in hospital_patterns:
+        try:
+            m = re.search(p, text)
+            if m:
+                candidate = safe_extract_match(m)
+                candidate = candidate.split("\n")[0].strip()
+                if len(candidate) > 3 and not any(kw in candidate.lower() for kw in ["patient", "doctor", "date", "name"]):
+                    hospital = candidate
+                    break
+        except Exception as e:
+            print(f"[AI] Deterministic extraction: failed rule hospital pattern {p}: {e}")
+
+    date_patterns = [
+        r'(?i)date\s*:\s*([0-9a-zA-Z\s,/\-\n]{6,20})',
+        r'(?i)prescription\s+date\s*:\s*([0-9a-zA-Z\s,/\-\n]{6,20})',
+        r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b'
+    ]
+    document_date = ""
+    for p in date_patterns:
+        try:
+            m = re.search(p, text)
+            if m:
+                candidate = safe_extract_match(m)
+                candidate = candidate.split("\n")[0].strip()
+                document_date = candidate
+                break
+        except Exception as e:
+            print(f"[AI] Deterministic extraction: failed rule date pattern {p}: {e}")
+
+    medicines = []
+    try:
+        medicines = MedicineExtractor.extract_medicines(text, document_type)
+    except Exception as e:
+        print(f"[AI] Deterministic extraction: failed medicine extraction: {e}")
+
+    return {
+        "patient_name": patient_name,
+        "doctor_name": doctor_name,
+        "hospital": hospital,
+        "prescription_date": document_date,
+        "medicines": medicines
     }
 
+
+def execute_gemini_request_with_retry(payload: dict) -> dict | None:
+    print("[AI] Gemini request 1/1")
+    print("[AI] Combined classification + extraction")
+    
+    # Check if multimodal payload was included
+    has_image = False
     try:
-        print(f"[AI PIPELINE] Calling Gemini API for extraction")
+        parts = payload.get("contents", [{}])[0].get("parts", [])
+        if len(parts) > 1:
+            has_image = any(isinstance(p, dict) and "inlineData" in p for p in parts)
+    except Exception:
+        pass
+
+    response = None
+    try:
         response = requests.post(
             GEMINI_API_URL,
             params={"key": GEMINI_API_KEY},
             json=payload,
-            timeout=60,
+            timeout=45
         )
-        response.raise_for_status()
-        result = response.json()
-        print(f"[AI PIPELINE] Gemini API response received")
-    except (requests.RequestException, ValueError) as e:
-        print(f"[AI PIPELINE] ERROR: Gemini API failed - {e}")
-        return {
-            **_empty_result(cleaned_text),
-            "document_type": document_type,
-            "classification": document_type,
-            "confidence_score": 0.0,
-            "processing_time": time.time() - start_time,
-            "ocr_quality_score": ocr_quality,
-            "rejected": True,
-            "rejection_reason": "Gemini API error"
+        if response.status_code == 429:
+            print("[AI] Gemini failure category: RATE_LIMIT")
+            print("[AI] Gemini HTTP status: 429")
+            print(f"[AI] Gemini model: {GEMINI_MODEL}")
+            print(f"[AI] Gemini multimodal payload included: {str(has_image).lower()}")
+            print("[AI] Gemini request 1/1 rate limited")
+            print("[AI] No Gemini retry — request budget exhausted")
+            print("[AI] Falling back to deterministic processing")
+            return {"error": "429_rate_limited"}
+
+        if response.status_code != 200:
+            status_code = response.status_code
+            err_msg = ""
+            status_str = "API_ERROR"
+            try:
+                err_data = response.json()
+                err_node = err_data.get("error", {})
+                err_msg = err_node.get("message", "")
+                status_str = err_node.get("status", "API_ERROR")
+            except Exception:
+                err_msg = response.text[:200]
+
+            print(f"[AI] Gemini failure category: {status_str}")
+            print(f"[AI] Gemini HTTP status: {status_code}")
+            print(f"[AI] Gemini model: {GEMINI_MODEL}")
+            print(f"[AI] Gemini multimodal payload included: {str(has_image).lower()}")
+            print(f"[AI] Gemini failure detail: {sanitize_log_message(err_msg)}")
+            print("[AI] Gemini request failed during HTTP response")
+            print("[AI] No Gemini retry — request budget exhausted")
+            print("[AI] Falling back to deterministic processing")
+            return {"error": "api_error", "status": status_str, "status_code": status_code}
+
+        print("[AI] Gemini success")
+        try:
+            return response.json()
+        except Exception as parse_err:
+            print("[AI] Gemini failure category: RESPONSE_PARSE_ERROR")
+            print("[AI] Gemini HTTP status: 200")
+            print(f"[AI] Gemini model: {GEMINI_MODEL}")
+            print(f"[AI] Gemini multimodal payload included: {str(has_image).lower()}")
+            print("[AI] Gemini response received but structured JSON parsing failed")
+            print("[AI] No Gemini retry — request budget exhausted")
+            print("[AI] Falling back to deterministic processing")
+            return {"error": "parse_error", "details": str(parse_err)}
+
+    except requests.exceptions.RequestException as e:
+        status_code = None
+        status_str = "NETWORK_ERROR"
+        if response is not None:
+            status_code = response.status_code
+        elif e.response is not None:
+            status_code = e.response.status_code
+
+        err_msg = sanitize_log_message(str(e))
+        print(f"[AI] Gemini failure category: {status_str}")
+        if status_code is not None:
+            print(f"[AI] Gemini HTTP status: {status_code}")
+        print(f"[AI] Gemini model: {GEMINI_MODEL}")
+        print(f"[AI] Gemini multimodal payload included: {str(has_image).lower()}")
+        print(f"[AI] Gemini failure detail: {err_msg}")
+        print("[AI] Gemini request failed before or during HTTP transmission")
+        print("[AI] No Gemini retry — request budget exhausted")
+        print("[AI] Falling back to deterministic processing")
+        return {"error": "api_error", "details": err_msg, "status": status_str}
+
+
+def make_unified_prompt(ocr_text: str) -> str:
+    from services.document_classifier import DOCUMENT_TYPES
+    doc_types_desc = "\n".join([f"- {k}: {v['description']}" for k, v in DOCUMENT_TYPES.items()])
+    
+    prompt = f"""
+You are an expert medical document analysis AI.
+Analyze the following medical document OCR text and extract classification metadata and all clinical findings.
+
+OCR Text:
+{ocr_text}
+
+=== TASK 1: Document Classification ===
+Classify the document into exactly ONE of the following document types:
+{doc_types_desc}
+
+Provide a classification_reason (under 50 words) and classification_confidence (integer 0-100).
+If the document is not a medical document (e.g. shopping receipt, random non-medical text), classify it as "not_medical_document" and mark "rejected": true.
+
+=== TASK 2: Information Extraction ===
+Based on the document type, extract all structured data. You must extract the general metadata:
+- patient_name
+- doctor_name (often under letterhead or signature)
+- hospital (or clinic/center)
+- date (often under prescription date, test date, issue date)
+
+And extract the specific details based on the classified type:
+- If the type is "prescription":
+  - medicines: list of medications. For each, extract: name, dosage (e.g. 500mg), frequency (e.g. BD, TDS, once daily), duration (e.g. 5 days), food_instructions (e.g. after food), instructions.
+  - diagnosis
+  - symptoms
+  - clinical_findings
+  - advice
+  - allergies
+- If the type is "blood_report":
+  - test_name
+  - parameters: reference ranges, values (e.g., Hemoglobin 14.5 g/dL, marked as abnormal if out of range)
+- If the type is "lab_report":
+  - test_name
+  - results: tests and values
+- If the type is "radiology_report", "xray", "ct_scan", "mri", or "ultrasound_report":
+  - findings: text description
+  - impression: clinical conclusion
+  - recommendation: follow-up direction
+- If the type is "discharge_summary":
+  - admission_date
+  - discharge_date
+  - diagnosis
+  - procedures
+  - medications: list of medications
+  - follow_up
+- If the type is "medical_certificate":
+  - certificate_type
+  - validity
+  - condition
+  - restrictions
+
+=== RESPONSE FORMAT ===
+Return ONLY valid JSON matching this schema:
+{{
+  "document_type": "type_name",
+  "classification_confidence": 95,
+  "classification_reason": "Contains letterhead and medicines",
+  "rejected": false,
+  "rejection_reason": null,
+  
+  "patient_name": "string or null",
+  "doctor_name": "string or null",
+  "hospital": "string or null",
+  "date": "string or null",
+  
+  "diagnosis": "string or null",
+  "symptoms": ["string"],
+  "clinical_findings": ["string"],
+  "medicines": [
+    {{
+      "name": "string",
+      "dosage": "string or null",
+      "frequency": "string or null",
+      "duration": "string or null",
+      "food_instructions": "string or null",
+      "instructions": "string or null"
+    }}
+  ],
+  "advice": ["string"],
+  "allergies": ["string"],
+  
+  "test_name": "string or null",
+  "parameters": [
+    {{
+      "name": "string",
+      "value": "string",
+      "unit": "string or null",
+      "reference_range": "string or null",
+      "is_abnormal": false
+    }}
+  ],
+  
+  "results": [
+    {{
+      "test": "string",
+      "result": "string",
+      "unit": "string or null",
+      "reference": "string or null"
+    }}
+  ],
+  
+  "findings": "string or null",
+  "impression": "string or null",
+  "recommendation": "string or null",
+  
+  "admission_date": "string or null",
+  "discharge_date": "string or null",
+  "procedures": ["string"],
+  "medications": [
+    {{
+      "name": "string",
+      "dosage": "string or null",
+      "duration": "string or null"
+    }}
+  ],
+  
+  "certificate_type": "string or null",
+  "validity": "string or null",
+  "condition": "string or null",
+  "restrictions": ["string"]
+}}
+
+CRITICAL RULES:
+- Never hallucinate medical details.
+- Provide a confidence_score (0-100) based on how clear and complete the text information is.
+- Return ONLY the raw JSON string; no explanation, no markdown text block.
+"""
+    return prompt
+
+
+def structure_medical_text(
+    ocr_text: str | None,
+    file_path: str | Path | None = None,
+    is_digital: bool = False
+) -> dict[str, Any]:
+    """
+    Production-grade Medical Document Understanding Pipeline.
+    Unifies classification and extraction into a single backend/multimodal AI call,
+    while utilizing local deterministic pre-analysis and Zero-AI paths.
+    """
+    start_time = time.time()
+    source_text = str(ocr_text or "").strip()
+    
+    def log_info(msg: str):
+        print(sanitize_log_message(msg))
+        
+    print("[AI] Request budget: 1")
+    print("[AI] Deterministic pre-analysis started")
+    
+    if not source_text:
+        return _empty_result()
+        
+    # Running OCR / Clean Text checks
+    cleaned_text = OCRCleaner.clean(source_text)
+    ocr_quality = OCRCleaner.calculate_ocr_quality(cleaned_text)
+    
+    # Deterministic Pre-analysis
+    doc_type, heur_conf = classify_document_heuristic(cleaned_text)
+    det_data = None
+    try:
+        det_data = deterministic_extraction(source_text, doc_type)
+    except Exception as e:
+        print(f"[AI] Deterministic extraction failed top-level: {e}")
+        det_data = {
+            "patient_name": "",
+            "doctor_name": "",
+            "hospital": "",
+            "prescription_date": "",
+            "medicines": []
         }
-
-    candidates = result.get("candidates") or []
-    content = candidates[0].get("content", {}) if candidates else {}
-    parts = content.get("parts") or []
-    text = "\n".join(
-        part.get("text", "")
-        for part in parts
-        if isinstance(part, dict) and part.get("text")
-    )
-
-    extracted_data = _extract_json_object(text) if text else None
+    
+    # Grade deterministic confidence
+    det_confidence = 0.0
+    if det_data["patient_name"]: det_confidence += 25.0
+    if det_data["doctor_name"]: det_confidence += 25.0
+    if det_data["hospital"]: det_confidence += 25.0
+    if det_data["medicines"]: det_confidence += 25.0
+    
+    print(f"[AI] Deterministic confidence: {det_confidence}")
+    
+    overall_local_confidence = (ocr_quality * 0.4) + (det_confidence * 0.6)
+    
+    # format target
+    input_format = "digital" if (is_digital or (file_path and Path(file_path).suffix.lower() == ".pdf" and is_digital)) else "scanned"
+    
+    # Enforce request budgets
+    ai_status = "AI_COMPLETED"
+    gemini_required = True
+    
+    if input_format == "digital" and det_confidence >= 75.0:
+        log_info(f"[AI PIPELINE] Bypassing Gemini (Zero-AI Path matched for digital document, det_confidence: {det_confidence:.1f}%)")
+        gemini_required = False
+        ai_status = "DETERMINISTIC_COMPLETED"
+    elif ocr_quality >= 90.0 and overall_local_confidence >= 90.0:
+        log_info(f"[AI PIPELINE] Bypassing Gemini (Zero-AI Path matched for high-confidence scanned document, local_conf: {overall_local_confidence:.1f}%)")
+        gemini_required = False
+        ai_status = "DETERMINISTIC_COMPLETED"
+        
+    print(f"[AI] Gemini required: {str(gemini_required).lower()}")
+        
+    extracted_data = None
+    classification_confidence = heur_conf
+    classification_reason = "Local keyword heuristic"
+    gemini_called = False
+    
+    if gemini_required:
+        if not GEMINI_API_KEY:
+            print("[AI] Gemini configuration error: API key unavailable")
+            log_info("[AI PIPELINE] GEMINI_API_KEY not configured. Falling back to deterministic.")
+            ai_status = "AI_PROVIDER_UNAVAILABLE"
+        else:
+            gemini_called = True
+            prompt = make_unified_prompt(cleaned_text)
+            parts = [{"text": prompt}]
+            if file_path:
+                img_part = get_multimodal_parts(Path(file_path))
+                if img_part:
+                    parts.append(img_part)
+                    log_info("[AI PIPELINE] Image part included for multimodal interpretation.")
+                    
+            payload = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "application/json",
+                },
+            }
+            
+            gemini_response = execute_gemini_request_with_retry(payload)
+            
+            if gemini_response and "error" not in gemini_response:
+                try:
+                    candidates = gemini_response.get("candidates") or []
+                    content = candidates[0].get("content", {}) if candidates else {}
+                    rparts = content.get("parts") or []
+                    text = "\n".join(
+                        part.get("text", "")
+                        for part in rparts
+                        if isinstance(part, dict) and part.get("text")
+                    )
+                    extracted_data = _extract_json_object(text)
+                    if extracted_data:
+                        # Extract document type returned by Gemini
+                        doc_type = extracted_data.get("document_type", doc_type).lower()
+                        classification_confidence = extracted_data.get("classification_confidence", 80)
+                        classification_reason = extracted_data.get("classification_reason", "Gemini classification")
+                        log_info(f"[AI PIPELINE] Gemini Classified as: {doc_type} (conf: {classification_confidence}%)")
+                    else:
+                        log_info("[AI PIPELINE] Gemini returned data but JSON parsing failed.")
+                        ai_status = "AI_PARSE_ERROR"
+                except Exception as ex:
+                    log_info(f"[AI PIPELINE] Failed to parse unified Gemini response: {ex}")
+                    ai_status = "AI_PARSE_ERROR"
+            else:
+                err_code = gemini_response.get("error") if gemini_response else "unknown"
+                log_info(f"[AI PIPELINE] Unified Gemini query failed: {err_code}. Triggering deterministic fallback.")
+                ai_status = "AI_PROVIDER_UNAVAILABLE"
+                
     if not extracted_data:
-        print(f"[AI PIPELINE] ERROR: Could not parse Gemini JSON response")
+        log_info("[AI PIPELINE] Fallback to deterministic local extraction fields.")
+        if ai_status == "AI_COMPLETED" and gemini_called:
+            ai_status = "AI_PARSE_ERROR"
+            
+        extracted_data = {
+            "doctor_name": det_data["doctor_name"],
+            "hospital": det_data["hospital"],
+            "patient_name": det_data["patient_name"],
+            "prescription_date": det_data["prescription_date"],
+            "medicines": det_data["medicines"],
+            "diagnosis": "",
+            "symptoms": [],
+            "clinical_findings": [],
+            "advice": [],
+            "notes": [],
+            "rejected": False,
+            "rejection_reason": ""
+        }
+    else:
+        # Safe merge with deterministic data for missing fields
+        log_info("[AI PIPELINE] Safely merging deterministic extraction into Gemini results.")
+        if not extracted_data.get("doctor_name") and det_data["doctor_name"]:
+            extracted_data["doctor_name"] = det_data["doctor_name"]
+        if not extracted_data.get("hospital") and det_data["hospital"]:
+            extracted_data["hospital"] = det_data["hospital"]
+        if not extracted_data.get("patient_name") and det_data["patient_name"]:
+            extracted_data["patient_name"] = det_data["patient_name"]
+        if not extracted_data.get("date") and det_data["prescription_date"]:
+            extracted_data["date"] = det_data["prescription_date"]
+        
+        # Merge medicines additively if deterministic found extras
+        if det_data.get("medicines"):
+            gem_meds = extracted_data.get("medicines") or []
+            seen_gem = {str(m.get("name", "")).lower() for m in gem_meds}
+            for det_med in det_data["medicines"]:
+                if str(det_med.get("name", "")).lower() not in seen_gem:
+                    gem_meds.append(det_med)
+            extracted_data["medicines"] = gem_meds
+        
+    # Reject non-medical early
+    if doc_type == "not_medical_document" or extracted_data.get("rejected", False):
+        rejection_reason = extracted_data.get("rejection_reason") or "Document classified as non-medical"
+        log_info(f"[AI PIPELINE] REJECTED: {rejection_reason}")
         return {
             **_empty_result(cleaned_text),
-            "document_type": document_type,
-            "classification": document_type,
+            "document_type": "not_medical_document",
+            "classification": "non-medical",
             "confidence_score": 0.0,
             "processing_time": time.time() - start_time,
             "ocr_quality_score": ocr_quality,
             "rejected": True,
-            "rejection_reason": "Failed to parse Gemini response"
+            "rejection_reason": rejection_reason,
+            "ai_status": ai_status
         }
+        
+    # Schema validation
+    schema_valid, schema_errors = validate_schema(doc_type, extracted_data)
     
-    print(f"[AI PIPELINE] Extraction successful")
-    print(f"[AI PIPELINE] === GEMINI RAW RESPONSE TRACE ===")
-    print(f"[AI PIPELINE] Gemini extracted_data keys: {list(extracted_data.keys())}")
-    print(f"[AI PIPELINE] Gemini medicines: {extracted_data.get('medicines', [])}")
-    print(f"[AI PIPELINE] Gemini diagnosis: {extracted_data.get('diagnosis', '')}")
-    print(f"[AI PIPELINE] Gemini doctor_name: {extracted_data.get('doctor_name', '')}")
-    print(f"[AI PIPELINE] Gemini hospital: {extracted_data.get('hospital', '')}")
-    print(f"[AI PIPELINE] === END GEMINI RAW RESPONSE TRACE ===")
-    
-    # Step 4: Schema Validation
-    print(f"[AI PIPELINE] Step 4: Schema Validation")
-    schema_valid, schema_errors = validate_schema(document_type, extracted_data)
-    print(f"[AI PIPELINE] Schema validation: {'PASSED' if schema_valid else 'FAILED'}")
-    if schema_errors:
-        print(f"[AI PIPELINE] Schema errors: {schema_errors}")
-    
-    # Step 5: Medicine Extraction (with heuristics)
-    print(f"[AI PIPELINE] Step 5: Medicine Extraction")
-    if should_extract_medicines(document_type):
-        # Use Gemini medicines first
+    # Medicine extraction post-processing
+    if should_extract_medicines(doc_type):
         gemini_medicines = extracted_data.get("medicines", [])
-        print(f"[AI PIPELINE] Gemini extracted {len(gemini_medicines)} medicines")
-        
-        # Apply regex fallback with strict heuristics
-        regex_medicines = MedicineExtractor.extract_medicines(cleaned_text, document_type)
-        
-        # Merge results, avoiding duplicates
-        seen_names = {m.get("name", "").lower() for m in gemini_medicines}
+        regex_medicines = MedicineExtractor.extract_medicines(cleaned_text, doc_type)
+        seen_names = {m.get("name", "").lower() for m in gemini_medicines if m.get("name")}
         for regex_med in regex_medicines:
             if regex_med["name"].lower() not in seen_names:
                 gemini_medicines.append(regex_med)
                 seen_names.add(regex_med["name"].lower())
-        
         extracted_data["medicines"] = gemini_medicines
-        print(f"[AI PIPELINE] Total medicines after merge: {len(gemini_medicines)}")
     else:
-        # Clear medicines if not appropriate for this document type
         extracted_data["medicines"] = []
-        print(f"[AI PIPELINE] Medicines not extracted for document type: {document_type}")
-    
-    # Step 6: Medical Knowledge Verification
-    print(f"[AI PIPELINE] Step 6: Medical Knowledge Verification")
-    print(f"[AI PIPELINE] === BEFORE MEDICINE VALIDATION TRACE ===")
-    print(f"[AI PIPELINE] Medicines before validation: {extracted_data.get('medicines', [])}")
-    print(f"[AI PIPELINE] Diagnosis before normalization: {extracted_data.get('diagnosis', '')}")
-    print(f"[AI PIPELINE] === END BEFORE VALIDATION TRACE ===")
-    
-    # Validate medicines
-    if should_extract_medicines(document_type):
-        valid_medicines, suspicious_medicines, medicine_confidence = MedicationValidator.validate_medicines(
-            extracted_data.get("medicines", [])
+        
+    # Validation step
+    if should_extract_medicines(doc_type):
+        allergies = extracted_data.get("allergies", [])
+        verified_meds, unverified_meds, suspicious_meds, med_conf = MedicationValidator.validate_medicines(
+            extracted_data.get("medicines", []), allergies
         )
-        extracted_data["medicines"] = valid_medicines
-        extracted_data["suspicious_medicines"] = suspicious_medicines
-        print(f"[AI PIPELINE] Valid medicines: {len(valid_medicines)}, Suspicious: {len(suspicious_medicines)}")
-        print(f"[AI PIPELINE] Medicine confidence: {medicine_confidence:.1f}%")
-        print(f"[AI PIPELINE] === AFTER MEDICINE VALIDATION TRACE ===")
-        print(f"[AI PIPELINE] Medicines after validation: {valid_medicines}")
-        print(f"[AI PIPELINE] Suspicious medicines: {suspicious_medicines}")
-        print(f"[AI PIPELINE] === END AFTER VALIDATION TRACE ===")
+        extracted_data["verified_medicines"] = verified_meds
+        extracted_data["unverified_medicines"] = unverified_meds
+        # Preserve ALL medicines (verified + unverified) in the main list
+        # Filter out duplicates if any overlap
+        all_meds = verified_meds + unverified_meds
+        extracted_data["medicines"] = all_meds
+        extracted_data["suspicious_medicines"] = suspicious_meds
+        medicine_confidence = med_conf
     else:
+        extracted_data["verified_medicines"] = []
+        extracted_data["unverified_medicines"] = []
         extracted_data["medicines"] = []
         extracted_data["suspicious_medicines"] = []
-        medicine_confidence = 100.0  # N/A
-    
-    # Normalize conditions
+        medicine_confidence = 100.0
+        
+    # Normalize diagnosis conditions
     diagnosis = extracted_data.get("diagnosis", "")
     if diagnosis:
         normalized_diagnosis = ConditionNormalizer.normalize(diagnosis)
         extracted_data["diagnosis"] = normalized_diagnosis
-        print(f"[AI PIPELINE] Normalized diagnosis: {normalized_diagnosis}")
-        print(f"[AI PIPELINE] === AFTER CONDITION NORMALIZATION TRACE ===")
-        print(f"[AI PIPELINE] Diagnosis after normalization: {normalized_diagnosis}")
-        print(f"[AI PIPELINE] === END CONDITION NORMALIZATION TRACE ===")
-    
-    # Step 7: Confidence Calculation
-    print(f"[AI PIPELINE] Step 7: Confidence Calculation")
+        
+    # Calculate confidence score
     processing_time = time.time() - start_time
     confidence_scores = ConfidenceCalculator.calculate_comprehensive_confidence(
         ocr_text=source_text,
         cleaned_text=cleaned_text,
-        document_type=document_type,
+        document_type=doc_type,
         classification_confidence=classification_confidence,
         extracted_data=extracted_data,
         ocr_quality=ocr_quality,
@@ -707,89 +1137,51 @@ def structure_medical_text(ocr_text: str | None) -> dict[str, Any]:
         processing_time=processing_time
     )
     confidence_score = confidence_scores["overall_confidence"]
-    print(f"[AI PIPELINE] Overall confidence: {confidence_score:.1f}%")
-    print(f"[AI PIPELINE] Component scores - OCR: {confidence_scores['ocr_confidence']:.1f}%, Medicine: {confidence_scores['medicine_confidence']:.1f}%, Disease: {confidence_scores['disease_confidence']:.1f}%")
     
-    # Step 8: Quality Validation
-    print(f"[AI PIPELINE] Step 8: Quality Validation")
-    print(f"[AI PIPELINE] === BEFORE QUALITY VALIDATION TRACE ===")
-    print(f"[AI PIPELINE] extracted_data keys: {list(extracted_data.keys())}")
-    print(f"[AI PIPELINE] Medicines: {extracted_data.get('medicines', [])}")
-    print(f"[AI PIPELINE] Diagnosis: {extracted_data.get('diagnosis', '')}")
-    print(f"[AI PIPELINE] Doctor: {extracted_data.get('doctor_name', '')}")
-    print(f"[AI PIPELINE] Hospital: {extracted_data.get('hospital', '')}")
-    print(f"[AI PIPELINE] === END BEFORE QUALITY VALIDATION TRACE ===")
-    
+    # Quality validation
     is_valid, validation_errors, should_recover = QualityValidator.validate_extraction(
-        document_type=document_type,
+        document_type=doc_type,
         extracted_data=extracted_data,
         ocr_text=source_text,
         confidence_score=confidence_score
     )
     
-    print(f"[AI PIPELINE] Quality validation result: is_valid={is_valid}, errors={validation_errors}, should_recover={should_recover}")
-    
     if not is_valid:
-        print(f"[AI PIPELINE] Quality validation FAILED")
-        print(f"[AI PIPELINE] Validation errors: {validation_errors}")
-        
-        # Check if document should be rejected
-        if QualityValidator.should_reject_document(document_type, confidence_score, validation_errors):
-            print(f"[AI PIPELINE] REJECTED: Document failed quality validation")
-            print(f"[AI PIPELINE] === DOCUMENT REJECTED TRACE ===")
-            print(f"[AI PIPELINE] Rejection reason: {validation_errors}")
-            print(f"[AI PIPELINE] === END REJECTION TRACE ===")
+        if QualityValidator.should_reject_document(doc_type, confidence_score, validation_errors):
+            log_info(f"[AI PIPELINE] REJECTED: Failed quality validation: {validation_errors}")
             return {
                 **_empty_result(cleaned_text),
-                "document_type": document_type,
-                "classification": document_type,
+                "document_type": doc_type,
+                "classification": doc_type,
                 "confidence_score": confidence_score,
                 "processing_time": processing_time,
                 "ocr_quality_score": ocr_quality,
                 "rejected": True,
-                "rejection_reason": ", ".join(validation_errors)
+                "rejection_reason": ", ".join(validation_errors),
+                "ai_status": ai_status
             }
-        
-        # Attempt recovery if appropriate
         if should_recover:
-            print(f"[AI PIPELINE] Attempting recovery")
-            extracted_data = QualityValidator.attempt_recovery(document_type, extracted_data, source_text)
-            print(f"[AI PIPELINE] === AFTER RECOVERY TRACE ===")
-            print(f"[AI PIPELINE] Medicines after recovery: {extracted_data.get('medicines', [])}")
-            print(f"[AI PIPELINE] Diagnosis after recovery: {extracted_data.get('diagnosis', '')}")
-            print(f"[AI PIPELINE] === END RECOVERY TRACE ===")
-    else:
-        print(f"[AI PIPELINE] Quality validation PASSED")
-    
-    # Step 9: Generate AI Summary
-    print(f"[AI PIPELINE] Step 9: Generate AI Summary")
+            extracted_data = QualityValidator.attempt_recovery(doc_type, extracted_data, source_text)
+            
+    # AI Summary
     ai_summary = AISummaryGenerator.generate_summary(
-        document_type=document_type,
+        document_type=doc_type,
         extracted_data=extracted_data,
         medicines=extracted_data.get("medicines", []),
         conditions=[extracted_data.get("diagnosis", "")] if extracted_data.get("diagnosis") else [],
         doctor_name=extracted_data.get("doctor_name", ""),
-        hospital=extracted_data.get("hospital", "")
+        hospital=extracted_data.get("hospital", ""),
+        ai_status=ai_status
     )
-    print(f"[AI PIPELINE] AI summary generated")
     
-    # Step 10: Generate Document Title
-    print(f"[AI PIPELINE] Step 10: Generate Document Title")
-    diagnosis = extracted_data.get("diagnosis", "")
+    # Document title
     findings = extracted_data.get("findings", "")
-    document_title = TitleGenerator.generate_title(document_type, diagnosis, findings)
-    print(f"[AI PIPELINE] Generated title: {document_title}")
+    document_title = TitleGenerator.generate_title(doc_type, extracted_data.get("diagnosis", ""), findings)
     
-    # Normalize result to match existing schema
-    print(f"[AI PIPELINE] === BEFORE NORMALIZATION TRACE ===")
-    print(f"[AI PIPELINE] extracted_data keys: {list(extracted_data.keys())}")
-    print(f"[AI PIPELINE] Medicines: {extracted_data.get('medicines', [])}")
-    print(f"[AI PIPELINE] Diagnosis: {extracted_data.get('diagnosis', '')}")
-    print(f"[AI PIPELINE] === END BEFORE NORMALIZATION TRACE ===")
-    
+    # Normalize result
     normalized_result = _normalize_to_legacy_format(
         extracted_data,
-        document_type,
+        doc_type,
         cleaned_text,
         confidence_score,
         processing_time,
@@ -800,25 +1192,9 @@ def structure_medical_text(ocr_text: str | None) -> dict[str, Any]:
         validation_errors
     )
     
-    print(f"[AI PIPELINE] === AFTER NORMALIZATION TRACE ===")
-    print(f"[AI PIPELINE] normalized_result keys: {list(normalized_result.keys())}")
-    print(f"[AI PIPELINE] normalized_result medicines: {normalized_result.get('medicines', [])}")
-    print(f"[AI PIPELINE] normalized_result possible_conditions: {normalized_result.get('possible_conditions', [])}")
-    print(f"[AI PIPELINE] === END AFTER NORMALIZATION TRACE ===")
-    
-    # Add AI summary to result
     normalized_result["ai_summary"] = ai_summary
-    
-    # Add document title
     normalized_result["document_title"] = document_title
-    
-    # Add component confidence scores
     normalized_result["component_confidence"] = confidence_scores
-    
-    print(f"[AI PIPELINE] Pipeline completed successfully")
-    print(f"[AI PIPELINE] Document type: {document_type}")
-    print(f"[AI PIPELINE] Medicines: {len(normalized_result['medicines'])}")
-    print(f"[AI PIPELINE] Confidence: {confidence_score:.1f}%")
-    print(f"[AI PIPELINE] Processing time: {processing_time:.2f}s")
+    normalized_result["ai_status"] = ai_status
     
     return normalized_result
