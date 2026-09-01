@@ -1,4 +1,5 @@
 import os
+import json
 import firebase_admin
 from firebase_admin import credentials, auth
 from dotenv import load_dotenv
@@ -8,19 +9,33 @@ load_dotenv()
 # Initialize Firebase Admin
 def initialize_firebase():
     if not firebase_admin._apps:
+        service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
         service_account_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
-        if service_account_path and os.path.exists(service_account_path):
-            cred = credentials.Certificate(service_account_path)
-            firebase_admin.initialize_app(cred)
-            print("Firebase Admin initialized successfully.")
-        else:
+        
+        try:
+            if service_account_json:
+                cred_dict = json.loads(service_account_json)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                print("Firebase Admin initialized successfully from JSON environment variable.")
+            elif service_account_path and os.path.exists(service_account_path):
+                cred = credentials.Certificate(service_account_path)
+                firebase_admin.initialize_app(cred)
+                print("Firebase Admin initialized successfully from file path.")
+            else:
+                print("==========================================================================")
+                print("WARNING: Firebase credentials missing in environment.")
+                print("Firebase authentication for patients will NOT work.")
+                print("To fix this for Render (Production):")
+                print("1. Open your downloaded service account JSON file.")
+                print("2. Copy its entire content.")
+                print("3. In Render Dashboard, add a new Environment Variable named:")
+                print("   FIREBASE_SERVICE_ACCOUNT_JSON")
+                print("4. Paste the JSON content as the value.")
+                print("==========================================================================")
+        except Exception as e:
             print("==========================================================================")
-            print("WARNING: FIREBASE_SERVICE_ACCOUNT_PATH is missing or invalid in .env")
-            print("Firebase authentication for patients will NOT work.")
-            print("To fix this:")
-            print("1. Download your service account JSON from Firebase Console.")
-            print("2. Place it securely in your project (e.g., backend/firebase-adminsdk.json)")
-            print("3. Add FIREBASE_SERVICE_ACCOUNT_PATH=firebase-adminsdk.json to your .env")
+            print(f"ERROR initializing Firebase: {e}")
             print("==========================================================================")
 
 # Call this during startup
