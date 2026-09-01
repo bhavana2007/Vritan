@@ -3,6 +3,7 @@ frontend/node_modules/
 
 # Python virtual environment
 backend/venv/
+.codex-runtime/
 
 # Python cache
 backend/__pycache__/

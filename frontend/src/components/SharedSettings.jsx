@@ -38,7 +38,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
     const fetchScheduleData = async () => {
       setIsLoadingSchedule(true);
       try {
-        const availRes = await fetch("http://localhost:8000/doctor/availability", {
+        const availRes = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/availability`, {
           headers: { "Authorization": `Bearer ${localStorage.getItem("token") || ""}` }
         });
         const availData = await availRes.json();
@@ -54,7 +54,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
           setSlotDuration(availData[0].slot_duration_minutes);
         }
 
-        const settingsRes = await fetch("http://localhost:8000/doctor/profile-settings", {
+        const settingsRes = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/profile-settings`, {
           headers: { "Authorization": `Bearer ${localStorage.getItem("token") || ""}` }
         });
         const settingsData = await settingsRes.json();
@@ -66,7 +66,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
           setCancelHours(settingsData.cancellation_notice_hours);
         }
 
-        const excRes = await fetch("http://localhost:8000/doctor/availability/exceptions", {
+        const excRes = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/availability/exceptions`, {
           headers: { "Authorization": `Bearer ${localStorage.getItem("token") || ""}` }
         });
         const excData = await excRes.json();
@@ -98,7 +98,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
           slot_duration_minutes: parseInt(slotDuration)
         }));
 
-      await fetch("http://localhost:8000/doctor/availability", {
+      await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/availability`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -107,7 +107,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
         body: JSON.stringify({ availabilities })
       });
 
-      await fetch("http://localhost:8000/doctor/profile-settings", {
+      await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/profile-settings`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -135,7 +135,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
       setError("");
       setSuccessMessage("");
 
-      await fetch("http://localhost:8000/doctor/availability/exceptions", {
+      await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/availability/exceptions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -150,7 +150,7 @@ function SharedSettings({ userRole, userProfile, onUpdate }) {
       });
 
       // Reload exceptions
-      const excRes = await fetch("http://localhost:8000/doctor/availability/exceptions", {
+      const excRes = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/doctor/availability/exceptions`, {
         headers: { "Authorization": `Bearer ${localStorage.getItem("token") || ""}` }
       });
       const excData = await excRes.json();

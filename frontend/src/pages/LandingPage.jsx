@@ -123,7 +123,7 @@ export function LandingPage() {
 
     async function fetchPlatformSummary() {
       try {
-        const res = await fetch("http://localhost:8000/public/platform-summary");
+        const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/public/platform-summary`);
         if (!res.ok) throw new Error("Summary unavailable");
         const data = await res.json();
         setStats({

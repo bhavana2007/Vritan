@@ -49,7 +49,7 @@ function ProfileImageUpload({ currentImageUrl, onImageUploaded, role }) {
         <div className="w-24 h-24 rounded-full overflow-hidden bg-slate-200 border-4 border-white shadow-md flex items-center justify-center">
           {currentImageUrl ? (
             <img 
-              src={`http://localhost:8000${currentImageUrl}`} 
+              src={`${import.meta.env.VITE_API_URL || "http://localhost:8000"}${currentImageUrl}`} 
               alt="Profile" 
               className="w-full h-full object-cover" 
             />

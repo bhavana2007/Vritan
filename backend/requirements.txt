@@ -7,6 +7,7 @@ fastapi>=0.115.0,<1
 uvicorn[standard]>=0.32.0,<1
 requests>=2.31.0,<3
 python-dotenv>=1.0.0,<2
+pillow>=10.0.0,<13
 
 # Multipart bodies (forms / file uploads later)
 python-multipart>=0.0.9
@@ -25,3 +26,15 @@ bcrypt>=4.0.0,<5
 
 # PyPI package name is PyJWT; import in code is: import jwt
 PyJWT>=2.8.0,<3
+
+# Fast medicine fuzzy matching for OCR correction and prescription entry
+rapidfuzz>=3.9.0,<4
+
+# AI Preprocessing
+opencv-python-headless>=4.8.0,<5
+pdf2image>=1.16.0,<2
+PyMuPDF>=1.23.0,<2
+firebase-admin>=6.0.0
+google-genai>=0.1.0
+websockets>=11.0.3
+tzdata

@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { apiClient } from "../api/client";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 function ProgressBar({ current, steps }) {
   return (
     <div className="flex items-center justify-center gap-0 w-full max-w-md mx-auto mb-6">
@@ -131,7 +132,7 @@ function DoctorRegister() {
     const delayDebounce = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/hospitals/search?q=${encodeURIComponent(hospitalSearch)}`);
+        const response = await fetch(`${API_BASE}/api/v1/hospitals/search?q=${encodeURIComponent(hospitalSearch)}`);
         const result = await response.json();
         setHospitalsList(result.data?.items || result.data || result || []);
       } catch (err) {
@@ -329,7 +330,7 @@ function DoctorRegister() {
       }
 
       // Perform multipart POST request
-      const response = await fetch("http://localhost:8000/register-doctor", {
+      const response = await fetch(`${API_BASE}/register-doctor`, {
         method: "POST",
         body: formData
       });

@@ -1,6 +1,6 @@
-/** Backend base URL — set VITE_API_BASE in `.env` for production. */
+/** Backend base URL - set VITE_API_URL in `.env` for production. */
 export const API_BASE =
-  import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_URL ?? import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 /** Readable message from FastAPI `HTTPException` or validation errors */
 export function parseFastApiDetail(payload) {

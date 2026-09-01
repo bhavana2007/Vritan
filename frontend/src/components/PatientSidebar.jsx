@@ -151,7 +151,7 @@ function PatientSidebar({ currentPage, isCollapsed, onToggleCollapse }) {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-200 shadow-sm flex items-center justify-center text-blue-700 font-bold overflow-hidden flex-shrink-0">
                 {user?.profile_image_url ? (
-                  <img src={`http://localhost:8000${user.profile_image_url}`} alt="Profile" className="w-full h-full object-cover" />
+                  <img src={`${import.meta.env.VITE_API_URL || "http://localhost:8000"}${user.profile_image_url}`} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   (activeProfile?.full_name || patientName).charAt(0).toUpperCase()
                 )}
