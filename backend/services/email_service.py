@@ -270,13 +270,14 @@ def send_otp_email(to_email: str, otp: str) -> bool:
 def send_approval_email(to_email: str) -> bool:
     """Send approval email when stakeholder registration is approved."""
     subject = "Your Vritan Account Has Been Approved"
-    html_content = """
+    _frontend = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    html_content = f"""
     <html>
     <body style="font-family: sans-serif; padding: 20px; color: #333;">
         <p>Congratulations!</p>
         <p>Your organization has been approved.</p>
         <p>You can now log in to Vritan.</p>
-        <p><a href="http://localhost:5173/login" style="display: inline-block; padding: 10px 20px; background-color: #059669; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 15px;">Login</a></p>
+        <p><a href="{_frontend}/login" style="display: inline-block; padding: 10px 20px; background-color: #059669; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 15px;">Login</a></p>
     </body>
     </html>
     """
@@ -561,6 +562,7 @@ def send_member_affiliation_notification_email(
     role_title = str(role or "").replace("_", " ").title()
     subject = f"🏥 You have been affiliated with {org_name} on Vritan as a {role_title}"
     year = __import__('datetime').datetime.now().year
+    _frontend = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     html_content = f"""
 <!DOCTYPE html>
@@ -599,7 +601,7 @@ def send_member_affiliation_notification_email(
         <!-- Action Button -->
         <tr>
           <td style="padding:0 48px 40px;text-align:center;">
-            <a href="http://localhost:5173/sign-in" style="display:inline-block;background:linear-gradient(135deg,#059669,#047857);color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:16px 40px;border-radius:10px;box-shadow:0 4px 12px rgba(5,150,105,0.2);">🔓 Login to Vritan Dashboard</a>
+            <a href="{_frontend}/sign-in" style="display:inline-block;background:linear-gradient(135deg,#059669,#047857);color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:16px 40px;border-radius:10px;box-shadow:0 4px 12px rgba(5,150,105,0.2);">🔓 Login to Vritan Dashboard</a>
           </td>
         </tr>
 

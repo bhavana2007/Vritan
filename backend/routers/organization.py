@@ -719,7 +719,7 @@ def invite_member(
 
         # Send invite email
         from services.email_service import send_member_invitation_email
-        invite_link = f"http://localhost:5173/register?invite={raw_token}"
+        invite_link = f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/register?invite={raw_token}"
         dept_name = ""
         if payload.department_id:
             dept = db.query(Department).filter(Department.id == payload.department_id).first()
@@ -878,7 +878,7 @@ def transfer_doctor(
     # Send email to doctor
     try:
         from services.email_service import send_email
-        frontend_base = "http://localhost:5173"
+        frontend_base = os.getenv("FRONTEND_URL", "http://localhost:5173")
         confirm_link = f"{frontend_base}/doctor/transfer-confirm?token={raw_token}"
         
         email_html = f"""
@@ -1282,7 +1282,7 @@ def resend_invitation(
     
     # Send email
     from services.email_service import send_member_invitation_email
-    invite_link = f"http://localhost:5173/register?invite={raw_token}"
+    invite_link = f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/register?invite={raw_token}"
     dept_name = ""
     if invite.department_id:
         dept = db.query(Department).filter(Department.id == invite.department_id).first()

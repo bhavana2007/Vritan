@@ -1176,7 +1176,7 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
                 db.add(token_obj)
                 db.commit()
                 
-                verify_link = f"http://localhost:5173/verify-email?token={token_str}"
+                verify_link = f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/verify-email?token={token_str}"
                 print(f"[DOCTOR REGISTRATION EMAIL] Verification link: {verify_link}")
                 
                 from services.email_service import _send_email

@@ -1,4 +1,5 @@
 """Dedicated admin authentication and protected admin endpoints."""
+import os
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -473,7 +474,7 @@ def admin_organization_action(
                 db.add(token_rec)
                 db.commit()
                 
-                frontend_base = "http://localhost:5173"
+                frontend_base = os.getenv("FRONTEND_URL", "http://localhost:5173")
                 setup_link = f"{frontend_base}/setup-password?token={setup_token}"
                 
                 _org_name = getattr(target_obj.organization, 'name', 'Organization') if target_obj.organization else 'Organization'
@@ -520,7 +521,7 @@ def admin_organization_action(
                 db.add(token_rec)
                 db.commit()
                 # Build setup link (frontend URL)
-                frontend_base = "http://localhost:5173"
+                frontend_base = os.getenv("FRONTEND_URL", "http://localhost:5173")
                 setup_link = f"{frontend_base}/setup-password?token={setup_token}"
                 # Resolve admin name
                 _admin_name = getattr(target_obj, 'representative_name', None) or "Administrator"
