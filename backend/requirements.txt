@@ -22,7 +22,7 @@ email-validator>=2.0.0
 
 # Hashing: passlib bcrypt backend uses the bcrypt PyPI package
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.0.0,<5
+bcrypt==3.2.2
 
 # PyPI package name is PyJWT; import in code is: import jwt
 PyJWT>=2.8.0,<3
