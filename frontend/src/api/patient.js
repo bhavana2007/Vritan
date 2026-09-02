@@ -4,6 +4,6 @@ export const patientApi = {
   getProfile: () => apiClient.get("/patient/me"),
   updateProfile: (data) => apiClient.put("/profile/patient", data),
   getDashboardSummary: () => apiClient.get("/patient/dashboard-summary"),
-  getAccessRequests: () => apiClient.get("/patient/access-requests"),
+  getAccessRequests: () => apiClient.get("/patient/access-requests", { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } }),
   respondAccessRequest: (id, decision) => apiClient.post(`/patient/access-requests/${id}/${decision}`)
 };

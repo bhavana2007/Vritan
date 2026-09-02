@@ -23,7 +23,6 @@ function DoctorDashboard() {
     async function fetchDashboardData() {
       if (!token) return;
       try {
-        setLoading(true);
         const [statsData, activityData] = await Promise.all([
           apiClient.get("/doctor/dashboard-stats").catch(() => ({
             today_appointments: 0,
@@ -45,6 +44,8 @@ function DoctorDashboard() {
     }
 
     fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 5000);
+    return () => clearInterval(interval);
   }, [token]);
 
   const statCards = [

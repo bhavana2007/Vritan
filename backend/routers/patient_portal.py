@@ -93,26 +93,48 @@ def get_me(patient: Patient = Depends(get_active_patient)):
 @router.get("/dashboard-summary")
 def get_dashboard_summary(db: Session = Depends(get_db), patient: Patient = Depends(get_active_patient)):
     from appointment_utils import sync_appointment_status
+    import zoneinfo
+    from datetime import datetime
+    
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    now_ist = datetime.now(IST)
+    today_ist = now_ist.date()
+    current_time_str = now_ist.strftime("%H:%M")
+
     # Upcoming appointment
-    upcoming_apts = db.query(Appointment).filter(
+    from sqlalchemy import or_, and_
+    upcoming_apt_slot = db.query(Appointment, AppointmentSlot).join(
+        AppointmentSlot, Appointment.slot_id == AppointmentSlot.id
+    ).filter(
         Appointment.patient_id == patient.id,
-        Appointment.status == "Confirmed"
-    ).order_by(Appointment.created_at.asc()).all()
+        Appointment.status == "Confirmed",
+        or_(
+            AppointmentSlot.date > today_ist,
+            and_(
+                AppointmentSlot.date == today_ist,
+                AppointmentSlot.start_time >= current_time_str
+            )
+        )
+    ).order_by(
+        AppointmentSlot.date.asc(),
+        AppointmentSlot.start_time.asc()
+    ).first()
     
     upcoming_apt = None
     doctor = None
     slot = None
     
-    for apt in upcoming_apts:
-        s = db.query(AppointmentSlot).filter(AppointmentSlot.id == apt.slot_id).first()
-        if sync_appointment_status(apt, s):
+    if upcoming_apt_slot:
+        upcoming_apt, slot = upcoming_apt_slot
+        if sync_appointment_status(upcoming_apt, slot):
             db.commit()
-            db.refresh(apt)
-        if apt.status == "Confirmed":
-            upcoming_apt = apt
-            slot = s
-            doctor = db.query(Doctor).filter(Doctor.user_id == apt.doctor_id).first()
-            break
+            db.refresh(upcoming_apt)
+        
+        if upcoming_apt.status == "Confirmed":
+            doctor = db.query(Doctor).filter(Doctor.user_id == upcoming_apt.doctor_id).first()
+        else:
+            upcoming_apt = None
+            slot = None
             
     upcoming_apt_dict = None
     if upcoming_apt and slot:
@@ -169,15 +191,6 @@ def get_dashboard_summary(db: Session = Depends(get_db), patient: Patient = Depe
         "recent_record": recent_record,
         "latest_prescription": latest_rx
     }
-
-@router.get("/access-requests")
-def get_access_requests(db: Session = Depends(get_db), patient: Patient = Depends(get_active_patient)):
-    # Mocking for now as AccessRequest table might not exist
-    return []
-
-@router.post("/access-requests/{id}/{decision}")
-def respond_access_request(id: int, decision: str, db: Session = Depends(get_db), patient: Patient = Depends(get_active_patient)):
-    return {"message": "Processed"}
 
 # --- Appointments ---
 

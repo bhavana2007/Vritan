@@ -12,6 +12,8 @@ const DoctorAppointments = () => {
 
     useEffect(() => {
         fetchAppointments();
+        const interval = setInterval(fetchAppointments, 5000);
+        return () => clearInterval(interval);
     }, []);
 
     const handleStartConsultation = async (uid) => {
