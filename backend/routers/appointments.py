@@ -327,7 +327,12 @@ def book_appointment(
     print(f"slot_start={db_slot.start_time if db_slot else 'N/A'}")
     print(f"slot_end={db_slot.end_time if db_slot else 'N/A'}")
     
-    if db_slot.status == "BOOKED":
+    # Check for existing appointment to prevent duplicate/double-click bookings
+    existing = db.query(Appointment).filter(
+        Appointment.slot_id == db_slot.id,
+        Appointment.status.notin_(["Cancelled", "Missed"])
+    ).first()
+    if existing or db_slot.status == "BOOKED":
         raise HTTPException(status_code=400, detail="Slot is already booked.")
 
     # Verify lock

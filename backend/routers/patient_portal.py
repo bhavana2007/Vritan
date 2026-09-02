@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from enum import Enum
 
 from database import get_db
-from models import User, Patient, Appointment, MedicalRecord, Prescription, Notification, Organization, Branch, Department, Doctor, AppointmentSlot, DoctorProfile
+from models import User, Patient, Appointment, MedicalRecord, Prescription, Notification, Doctor, AppointmentSlot, DoctorProfile
+from org_models import Organization, Branch, Department
 from security import get_current_user
 from dependencies.patient_profile import get_active_patient
 from schemas import UserRegister, MedicalRecordPublic
@@ -148,14 +149,13 @@ def get_dashboard_summary(db: Session = Depends(get_db), patient: Patient = Depe
         hospital_name = "Unknown Hospital"
         department_name = "Unknown Department"
         if upcoming_apt.branch_id:
-            from models import Branch, Organization, Department
+            # Global imports are used
             branch = db.query(Branch).filter(Branch.id == upcoming_apt.branch_id).first()
             if branch:
                 org = db.query(Organization).filter(Organization.id == branch.organization_id).first()
                 if org:
                     hospital_name = org.name
         if upcoming_apt.department_id:
-            from models import Department
             dept = db.query(Department).filter(Department.id == upcoming_apt.department_id).first()
             if dept:
                 department_name = dept.name
@@ -196,7 +196,6 @@ def get_dashboard_summary(db: Session = Depends(get_db), patient: Patient = Depe
 
 @router.get("/appointments")
 def get_patient_appointments(db: Session = Depends(get_db), patient: Patient = Depends(get_active_patient)):
-    from models import User, Organization, Branch, Doctor
     from appointment_utils import sync_appointment_status
     
     try:
