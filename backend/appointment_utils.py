@@ -35,12 +35,16 @@ def sync_appointment_status(appointment, slot) -> bool:
     if appointment.status in ["Cancelled", "Completed", "Missed"]:
         return False
         
-    # 2. In Progress remains In Progress
+    # 2. In Progress: If it's from a past day, auto-complete it. Otherwise leave it.
     if appointment.status == "In Progress":
+        if slot and slot.date:
+            if slot.date < get_current_ist_time().date():
+                appointment.status = "Completed"
+                return True
         return False
         
-    # 3. Confirmed + appointment end time passed -> Missed
-    if appointment.status in ["Confirmed", "Booked", "Requested"]:
+    # 3. Pre-consultation states + appointment end time passed -> Missed
+    if appointment.status in ["Confirmed", "Booked", "Requested", "Checked-In", "Waiting", "Rescheduled"]:
         if slot and slot.date and slot.end_time:
             if is_appointment_past(slot.date, slot.end_time):
                 appointment.status = "Missed"
