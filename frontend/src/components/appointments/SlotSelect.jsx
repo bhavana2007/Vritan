@@ -3,17 +3,31 @@ import { appointmentsApi } from '../../api/appointments';
 
 const getTodayDateString = () => {
     const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    return formatter.format(today);
 };
 
 const getNextDays = (numDays) => {
     const days = [];
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    const today = new Date();
+    // Getting current time in IST
+    const istTime = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    
     for (let i = 0; i < numDays; i++) {
-        const date = new Date();
+        const date = new Date(istTime);
         date.setDate(date.getDate() + i);
+        
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');

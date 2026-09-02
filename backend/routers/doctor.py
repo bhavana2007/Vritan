@@ -150,12 +150,18 @@ def doctor_dashboard_stats(
     )
 
     # Prescriptions today
-    from datetime import date
+    import zoneinfo
 
-    today_dt = datetime.now(timezone.utc)
-    today = today_dt.date()
-    start_of_day = today_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = start_of_day + timedelta(days=1)
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    today_ist_dt = datetime.now(IST)
+    today = today_ist_dt.date()
+    
+    # We still need UTC bounds for querying created_at which is stored in UTC
+    start_of_day_ist = today_ist_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_day_ist = start_of_day_ist + timedelta(days=1)
+    
+    start_of_day = start_of_day_ist.astimezone(timezone.utc).replace(tzinfo=None)
+    end_of_day = end_of_day_ist.astimezone(timezone.utc).replace(tzinfo=None)
 
     prescriptions_today = (
         db.query(Prescription)

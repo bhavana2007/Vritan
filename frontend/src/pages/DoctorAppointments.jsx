@@ -12,8 +12,6 @@ const DoctorAppointments = () => {
 
     useEffect(() => {
         fetchAppointments();
-        const interval = setInterval(fetchAppointments, 5000);
-        return () => clearInterval(interval);
     }, []);
 
     const handleStartConsultation = async (uid) => {
@@ -30,7 +28,8 @@ const DoctorAppointments = () => {
         try {
             const data = await apiClient.get('/api/v1/appointments/my-appointments');
             
-            const today = new Date().toISOString().split('T')[0];
+            const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+            const today = formatter.format(new Date());
             const todayApts = data.filter(a => a.date === today);
             
             const waiting = todayApts.filter(a => ['Checked-In', 'Waiting'].includes(a.status)).length;
@@ -43,8 +42,7 @@ const DoctorAppointments = () => {
                 completed,
                 missed
             });
-            
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = today;
             const allApts = [...data].sort((a, b) => {
                 const dateA = a.date || '';
                 const dateB = b.date || '';

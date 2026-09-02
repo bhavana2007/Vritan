@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const BookingSuccess = ({ data }) => {
@@ -7,14 +7,21 @@ const BookingSuccess = ({ data }) => {
     const appointmentUid = aptRes.id || data.appointment_uid || 'APT-123456';
     const digitalToken = aptRes.token || data.token || 'TKN-08';
 
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            navigate('/patient/appointments');
+        }, 4000);
+        return () => clearTimeout(timer);
+    }, [navigate]);
+
     return (
         <div className="max-w-2xl mx-auto py-10 text-center animate-fade-in">
-            <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-5xl mx-auto mb-8 shadow-sm">
+            <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-5xl mx-auto mb-4 shadow-sm">
                 ✓
             </div>
             
-            <h2 className="text-4xl font-extrabold text-slate-900 mb-3">Booking Confirmed!</h2>
-            <p className="text-slate-500 mb-10 text-lg">Your appointment has been successfully scheduled.</p>
+            <h2 className="text-4xl font-extrabold text-emerald-600 mb-3">Appointment booked successfully!</h2>
+            <p className="text-slate-500 mb-10 text-lg">Redirecting you to your appointments...</p>
             
             <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-8 mb-10 text-left shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 bg-emerald-600 text-white px-5 py-1.5 rounded-bl-xl text-xs font-bold tracking-widest">

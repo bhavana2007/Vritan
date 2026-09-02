@@ -121,6 +121,12 @@ def get_available_slots(
             })
             curr += timedelta(minutes=duration)
 
+    import zoneinfo
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    now_ist = datetime.now(IST)
+    today_ist = now_ist.date()
+    current_ist_time_str = now_ist.strftime("%H:%M")
+
     # 3. Check existing locks and bookings
     # Need to find existing AppointmentSlot for this doctor/date
     db_slots = db.query(AppointmentSlot).filter(
@@ -141,6 +147,10 @@ def get_available_slots(
 
     # Update availability
     for s in all_slots:
+        # Check if slot is in the past for today
+        if date == today_ist and s["start_time"] < current_ist_time_str:
+            s["available"] = False
+
         db_slot = db_slot_map.get(s["start_time"])
         if db_slot:
             s["id"] = db_slot.id # Use real ID if exists
@@ -190,6 +200,19 @@ def lock_slot(
         AppointmentSlot.date == payload.date,
         AppointmentSlot.start_time == db_start_time
     ).first()
+    
+    import zoneinfo
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    now_ist = datetime.now(IST)
+    try:
+        payload_date = datetime.strptime(payload.date, "%Y-%m-%d").date()
+    except ValueError:
+        payload_date = payload.date
+        
+    if payload_date < now_ist.date():
+        raise HTTPException(status_code=400, detail="Cannot lock an appointment in the past.")
+    elif payload_date == now_ist.date() and db_start_time < now_ist.strftime("%H:%M"):
+        raise HTTPException(status_code=400, detail="Cannot lock a past time slot.")
 
     if not db_slot:
         db_slot = AppointmentSlot(
@@ -282,6 +305,15 @@ def book_appointment(
     if not db_slot:
         raise HTTPException(status_code=400, detail="Invalid slot. Please select a slot first.")
 
+    import zoneinfo
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    now_ist = datetime.now(IST)
+    
+    if db_slot.date < now_ist.date():
+        raise HTTPException(status_code=400, detail="Cannot book an appointment in the past.")
+    elif db_slot.date == now_ist.date() and db_slot.start_time < now_ist.strftime("%H:%M"):
+        raise HTTPException(status_code=400, detail="Cannot book a past time slot.")
+
     # BOOKING DEBUG
     print("\n--- BOOKING DEBUG ---")
     print(f"patient_id={patient.id}")
@@ -350,7 +382,7 @@ def book_appointment(
         branch = db.query(Branch).filter(Branch.id == new_apt.branch_id).first()
         if branch:
             branch_name = branch.name
-            from models import Organization
+            from org_models import Organization
             org = db.query(Organization).filter(Organization.id == branch.organization_id).first()
             if org:
                 hospital_name = org.name
@@ -413,7 +445,7 @@ def get_my_appointments(
             raise HTTPException(status_code=404, detail="Doctor profile not found")
             
         from appointment_utils import sync_appointment_status
-        from models import Organization
+        from org_models import Organization
         # Return full details for dashboard
         appointments = db.query(Appointment).filter(Appointment.doctor_id == doctor.user_id).all()
         result = []
