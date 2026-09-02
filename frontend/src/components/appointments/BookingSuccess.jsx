@@ -9,7 +9,7 @@ const BookingSuccess = ({ data }) => {
 
     useEffect(() => {
         const timer = setTimeout(() => {
-            navigate('/patient/appointments');
+            navigate('/patient/dashboard');
         }, 4000);
         return () => clearTimeout(timer);
     }, [navigate]);
