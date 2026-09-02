@@ -204,14 +204,10 @@ def lock_slot(
     import zoneinfo
     IST = zoneinfo.ZoneInfo("Asia/Kolkata")
     now_ist = datetime.now(IST)
-    try:
-        payload_date = datetime.strptime(payload.date, "%Y-%m-%d").date()
-    except ValueError:
-        payload_date = payload.date
         
-    if payload_date < now_ist.date():
+    if payload.date < now_ist.date():
         raise HTTPException(status_code=400, detail="Cannot lock an appointment in the past.")
-    elif payload_date == now_ist.date() and db_start_time < now_ist.strftime("%H:%M"):
+    elif payload.date == now_ist.date() and db_start_time < now_ist.strftime("%H:%M"):
         raise HTTPException(status_code=400, detail="Cannot lock a past time slot.")
 
     if not db_slot:
