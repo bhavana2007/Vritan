@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Union
 from datetime import datetime, date, timedelta
@@ -261,14 +261,105 @@ class BookAppointmentPayload(BaseModel):
     doctor_id: int
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
+    organization_id: Optional[int] = None
     date: str # YYYY-MM-DD
     time: str # 09:00 AM
     slot_id: Optional[Union[int, str]] = None
     appointment_type: Optional[str] = "Physical"
 
+
+ACTIVE_APPOINTMENT_STATUSES = ["Cancelled", "Missed"]
+
+
+def _parse_booking_start_time(time_value: str) -> str:
+    try:
+        return datetime.strptime(time_value, "%I:%M %p").strftime("%H:%M")
+    except ValueError:
+        return time_value
+
+
+def _resolve_booking_slot(db: Session, payload: BookAppointmentPayload) -> Optional[AppointmentSlot]:
+    if payload.slot_id and not str(payload.slot_id).startswith("temp-"):
+        try:
+            return db.query(AppointmentSlot).filter(AppointmentSlot.id == int(payload.slot_id)).first()
+        except (TypeError, ValueError):
+            return None
+
+    db_start_time = _parse_booking_start_time(payload.time)
+    return db.query(AppointmentSlot).filter(
+        AppointmentSlot.doctor_id == payload.doctor_id,
+        AppointmentSlot.date == payload.date,
+        AppointmentSlot.start_time == db_start_time
+    ).first()
+
+
+def _active_appointment_for_slot(db: Session, slot_id: int) -> Optional[Appointment]:
+    return db.query(Appointment).filter(
+        Appointment.slot_id == slot_id,
+        Appointment.status.notin_(ACTIVE_APPOINTMENT_STATUSES)
+    ).first()
+
+
+def _release_patient_slot_lock(db: Session, slot_id: int, patient_id: Optional[int] = None):
+    try:
+        lock_query = db.query(AppointmentSlotLock).filter(AppointmentSlotLock.slot_id == slot_id)
+        if patient_id is not None:
+            lock_query = lock_query.filter(AppointmentSlotLock.patient_id == patient_id)
+        lock = lock_query.first()
+        if not lock:
+            return
+
+        db.delete(lock)
+        slot = db.query(AppointmentSlot).filter(AppointmentSlot.id == slot_id).first()
+        if slot and slot.status == "LOCKED" and not _active_appointment_for_slot(db, slot_id):
+            slot.status = "AVAILABLE"
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _build_appointment_response(db: Session, appointment: Appointment, slot: AppointmentSlot) -> dict:
+    doctor = db.query(Doctor).filter(Doctor.user_id == appointment.doctor_id).first()
+    doctor_name = doctor.full_name if doctor else "Unknown"
+
+    hospital_name = None
+    branch_name = None
+    if appointment.branch_id:
+        branch = db.query(Branch).filter(Branch.id == appointment.branch_id).first()
+        if branch:
+            branch_name = branch.name
+            if branch.organization:
+                hospital_name = branch.organization.name
+
+    department_name = None
+    if appointment.department_id:
+        dept = db.query(Department).filter(Department.id == appointment.department_id).first()
+        if dept:
+            department_name = dept.name
+
+    return {
+        "id": appointment.id,
+        "appointment_uid": appointment.appointment_uid,
+        "patient_id": appointment.patient_id,
+        "doctor_id": appointment.doctor_id,
+        "doctor_name": doctor_name,
+        "hospital_name": hospital_name,
+        "branch_name": branch_name,
+        "department_name": department_name,
+        "slot_id": appointment.slot_id,
+        "date": slot.date.isoformat() if slot.date else None,
+        "start_time": slot.start_time,
+        "end_time": slot.end_time,
+        "appointment_type": appointment.appointment_type,
+        "status": appointment.status,
+        "token": appointment.token_number
+    }
+
+
 @router.post("/book", status_code=status.HTTP_201_CREATED)
 def book_appointment(
     payload: BookAppointmentPayload,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(["patient"]))
 ):
@@ -280,23 +371,7 @@ def book_appointment(
     
     current_time = datetime.utcnow()
 
-    # Find slot
-    db_slot = None
-    if payload.slot_id and not str(payload.slot_id).startswith("temp-"):
-        db_slot = db.query(AppointmentSlot).filter(AppointmentSlot.id == int(payload.slot_id)).first()
-    else:
-        # Fallback to finding by time
-        try:
-            parsed_time = datetime.strptime(payload.time, "%I:%M %p")
-            db_start_time = parsed_time.strftime("%H:%M")
-        except ValueError:
-            db_start_time = payload.time
-            
-        db_slot = db.query(AppointmentSlot).filter(
-            AppointmentSlot.doctor_id == payload.doctor_id,
-            AppointmentSlot.date == payload.date,
-            AppointmentSlot.start_time == db_start_time
-        ).first()
+    db_slot = _resolve_booking_slot(db, payload)
 
     if not db_slot:
         raise HTTPException(status_code=400, detail="Invalid slot. Please select a slot first.")
@@ -310,114 +385,105 @@ def book_appointment(
     elif db_slot.date == now_ist.date() and db_slot.start_time < now_ist.strftime("%H:%M"):
         raise HTTPException(status_code=400, detail="Cannot book a past time slot.")
 
-    # BOOKING DEBUG
-    print("\n--- BOOKING DEBUG ---")
-    print(f"patient_id={patient.id}")
-    print(f"hospital_id={payload.organization_id if hasattr(payload, 'organization_id') else 'N/A'}")
-    print(f"branch_id={payload.branch_id}")
-    print(f"department_id={payload.department_id}")
-    print(f"doctor_id={payload.doctor_id}")
-    print(f"appointment_date={payload.date}")
-    print(f"slot_id={db_slot.id if db_slot else 'N/A'}")
-    print(f"slot_date={db_slot.date if db_slot else 'N/A'}")
-    print(f"slot_start={db_slot.start_time if db_slot else 'N/A'}")
-    print(f"slot_end={db_slot.end_time if db_slot else 'N/A'}")
-    
     # Check for existing appointment to prevent duplicate/double-click bookings
-    existing = db.query(Appointment).filter(
-        Appointment.slot_id == db_slot.id,
-        Appointment.status.notin_(["Cancelled", "Missed"])
-    ).first()
-    if existing or db_slot.status == "BOOKED":
-        raise HTTPException(status_code=400, detail="Slot is already booked.")
+    existing = _active_appointment_for_slot(db, db_slot.id)
+    
+    if existing:
+        if existing.patient_id == patient.id:
+            # Idempotent return: user already booked this exact slot, treat as success
+            response.status_code = status.HTTP_200_OK
+            return _build_appointment_response(db, existing, db_slot)
+        else:
+            raise HTTPException(status_code=409, detail="Slot is already booked.")
 
-    # Verify lock
+    if db_slot.status == "BOOKED":
+        raise HTTPException(status_code=409, detail="Slot is already booked.")
+
     if db_slot.status == "LOCKED":
         lock = db.query(AppointmentSlotLock).filter(AppointmentSlotLock.slot_id == db_slot.id).first()
-        if lock and lock.expires_at > current_time and lock.patient_id != patient.id:
-            raise HTTPException(status_code=400, detail="Slot is currently locked by another user.")
+        if not lock or lock.expires_at <= current_time:
+            _release_patient_slot_lock(db, db_slot.id)
+            raise HTTPException(status_code=409, detail="Slot reservation expired. Please select the slot again.")
+        if lock.patient_id != patient.id:
+            raise HTTPException(status_code=409, detail="Slot is currently locked by another user.")
 
-    # Convert slot to booked
-    db_slot.status = "BOOKED"
+    try:
+        # Convert slot to booked
+        db_slot.status = "BOOKED"
 
-    new_apt = Appointment(
-        appointment_uid=f"APT-{uuid.uuid4().hex[:8].upper()}",
-        token_number=f"TKN-{uuid.uuid4().hex[:4].upper()}",
-        patient_id=patient.id,
-        doctor_id=payload.doctor_id,
-        branch_id=payload.branch_id,
-        department_id=payload.department_id,
-        slot_id=db_slot.id,
-        appointment_type=payload.appointment_type or "Physical",
-        status="Confirmed" # Auto confirm for MVP
-    )
-    
-    db.add(new_apt)
-    # Remove lock
-    db.query(AppointmentSlotLock).filter(AppointmentSlotLock.slot_id == db_slot.id).delete()
-    db.commit()
-    db.refresh(new_apt)
-    
-    # Reload for debugging
-    saved_apt = db.query(Appointment).filter(Appointment.id == new_apt.id).first()
-    print("\n--- CREATED APPOINTMENT DEBUG ---")
-    print(f"appointment_id={saved_apt.id}")
-    print(f"doctor_id={saved_apt.doctor_id}")
-    print(f"doctor_name={saved_apt.doctor.full_name if saved_apt.doctor else 'N/A'}")
-    print(f"hospital={saved_apt.branch.organization.name if saved_apt.branch and hasattr(saved_apt.branch, 'organization') and saved_apt.branch.organization else 'N/A'}")
-    print(f"branch={saved_apt.branch.name if saved_apt.branch else 'N/A'}")
-    print(f"department={saved_apt.department.name if saved_apt.department else 'N/A'}")
-    print(f"slot_id={saved_apt.slot_id}")
-    print(f"status={saved_apt.status}")
-    print(f"token={saved_apt.token_number}")
-    print("---------------------------------\n")
-    # Fetch relations for response
-    doctor_name = "Unknown"
-    doctor_user = db.query(User).filter(User.id == new_apt.doctor_id).first()
-    if doctor_user:
-        doctor_name = doctor_user.full_name
+        new_apt = Appointment(
+            appointment_uid=f"APT-{uuid.uuid4().hex[:8].upper()}",
+            token_number=f"TKN-{uuid.uuid4().hex[:4].upper()}",
+            patient_id=patient.id,
+            doctor_id=payload.doctor_id,
+            branch_id=payload.branch_id,
+            department_id=payload.department_id,
+            slot_id=db_slot.id,
+            appointment_type=payload.appointment_type or "Physical",
+            status="Confirmed" # Auto confirm for MVP
+        )
         
-    hospital_name = None
-    branch_name = None
-    if new_apt.branch_id:
-        branch = db.query(Branch).filter(Branch.id == new_apt.branch_id).first()
-        if branch:
-            branch_name = branch.name
-            from org_models import Organization
-            org = db.query(Organization).filter(Organization.id == branch.organization_id).first()
-            if org:
-                hospital_name = org.name
-                
-    department_name = None
-    if new_apt.department_id:
-        dept = db.query(Department).filter(Department.id == new_apt.department_id).first()
-        if dept:
-            department_name = dept.name
+        db.add(new_apt)
+        # Remove lock
+        db.query(AppointmentSlotLock).filter(AppointmentSlotLock.slot_id == db_slot.id).delete()
+        db.flush()
+        response_payload = _build_appointment_response(db, new_apt, db_slot)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        _release_patient_slot_lock(db, db_slot.id, patient.id)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not complete appointment booking. Please try again."
+        ) from exc
     
     # Notify Patient and Doctor (mocked hook)
     try:
         from services.notification_service import send_notification
-        send_notification(new_apt.patient_id, "Appointment Booked", f"Your appointment is confirmed.")
-        send_notification(new_apt.doctor_id, "New Appointment", f"New appointment scheduled.")
+        send_notification(response_payload["patient_id"], "Appointment Booked", "Your appointment is confirmed.")
+        send_notification(response_payload["doctor_id"], "New Appointment", "New appointment scheduled.")
     except Exception:
         pass
     
+    return response_payload
+
+
+@router.get("/book/status")
+def get_booking_status(
+    doctor_id: int,
+    date: str,
+    time: str,
+    slot_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["patient"]))
+):
+    from dependencies.patient_profile import get_active_patient
+    patient = get_active_patient(None, current_user, db)
+    payload = BookAppointmentPayload(
+        doctor_id=doctor_id,
+        date=date,
+        time=time,
+        slot_id=slot_id
+    )
+    db_slot = _resolve_booking_slot(db, payload)
+    if not db_slot:
+        return {"found": False, "appointment": None}
+
+    appointment = db.query(Appointment).filter(
+        Appointment.slot_id == db_slot.id,
+        Appointment.patient_id == patient.id,
+        Appointment.status.notin_(ACTIVE_APPOINTMENT_STATUSES)
+    ).first()
+
+    if not appointment:
+        return {"found": False, "appointment": None}
+
     return {
-        "id": new_apt.id,
-        "appointment_uid": new_apt.appointment_uid,
-        "patient_id": new_apt.patient_id,
-        "doctor_id": new_apt.doctor_id,
-        "doctor_name": doctor_name,
-        "hospital_name": hospital_name,
-        "branch_name": branch_name,
-        "department_name": department_name,
-        "slot_id": new_apt.slot_id,
-        "date": db_slot.date.isoformat() if db_slot.date else None,
-        "start_time": db_slot.start_time,
-        "end_time": db_slot.end_time,
-        "appointment_type": new_apt.appointment_type,
-        "status": new_apt.status,
-        "token": new_apt.token_number
+        "found": True,
+        "appointment": _build_appointment_response(db, appointment, db_slot)
     }
 
 

@@ -4,15 +4,24 @@ import { useNavigate } from 'react-router-dom';
 const BookingSuccess = ({ data }) => {
     const navigate = useNavigate();
     const aptRes = data.appointmentResponse || {};
-    const appointmentUid = aptRes.id || data.appointment_uid || 'APT-123456';
+    const appointmentUid = aptRes.appointment_uid || aptRes.id || data.appointment_uid || 'APT-123456';
     const digitalToken = aptRes.token || data.token || 'TKN-08';
+    const appointmentDate = aptRes.date || data.date;
+    const appointmentTime = aptRes.start_time || data.time;
 
     useEffect(() => {
         const timer = setTimeout(() => {
-            navigate('/patient/dashboard');
+            navigate('/dashboard');
         }, 4000);
         return () => clearTimeout(timer);
     }, [navigate]);
+
+    const formattedDate = () => {
+        if (!appointmentDate) return 'Date not provided';
+        const date = new Date(appointmentDate);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString(undefined, {month: 'long', day: 'numeric', year: 'numeric'});
+    };
 
     return (
         <div className="max-w-2xl mx-auto py-10 text-center animate-fade-in">
@@ -48,18 +57,18 @@ const BookingSuccess = ({ data }) => {
                     </div>
                     <div>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Doctor</p>
-                        <p className="font-bold text-slate-900 text-lg">{aptRes.doctor_name || data.doctor?.full_name || data.doctor?.name}</p>
-                        <p className="text-sm text-slate-500 font-medium">{aptRes.department_name || data.department?.name}</p>
+                        <p className="font-bold text-slate-900 text-lg">{aptRes.doctor_name || data.doctor?.full_name || data.doctor?.name || 'Unknown Doctor'}</p>
+                        <p className="text-sm text-slate-500 font-medium">{aptRes.department_name || data.department?.name || 'General'}</p>
                     </div>
                     <div>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Date & Time</p>
-                        <p className="font-bold text-slate-900 text-lg">{new Date(aptRes.date || data.date).toLocaleDateString(undefined, {month: 'long', day: 'numeric', year: 'numeric'})}</p>
-                        <p className="text-base font-extrabold text-blue-700 mt-1">{aptRes.start_time || data.time}</p>
+                        <p className="font-bold text-slate-900 text-lg">{formattedDate()}</p>
+                        <p className="text-base font-extrabold text-blue-700 mt-1">{appointmentTime || 'Time not provided'}</p>
                     </div>
                     <div>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hospital</p>
-                        <p className="font-bold text-slate-900 text-lg">{aptRes.hospital_name || data.hospital?.name}</p>
-                        <p className="text-sm text-slate-500 font-medium">{aptRes.branch_name || data.branch?.name}</p>
+                        <p className="font-bold text-slate-900 text-lg">{aptRes.hospital_name || data.hospital?.name || 'Independent Clinic'}</p>
+                        <p className="text-sm text-slate-500 font-medium">{aptRes.branch_name || data.branch?.name || ''}</p>
                     </div>
                 </div>
             </div>
@@ -69,7 +78,7 @@ const BookingSuccess = ({ data }) => {
                     Download Receipt
                 </button>
                 <button 
-                    onClick={() => navigate('/patient/appointments')}
+                    onClick={() => navigate('/dashboard/appointments?tab=manage')}
                     className="px-8 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-sm w-full sm:w-auto"
                 >
                     View My Appointments

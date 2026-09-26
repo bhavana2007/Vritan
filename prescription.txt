@@ -1,0 +1,21 @@
+Rx
+Dr. Robert Smith, MD
+Apollo Hospitals, Jubilee Hills, Hyderabad
+Date: 2026-08-01
+
+Patient: Jane Doe
+Age: 36 | Gender: Female
+
+Diagnosis: Type 2 Diabetes Mellitus & Essential Hypertension
+
+Medicines:
+1. Tab. Metformin 500mg - OD (Once daily) after breakfast - 30 days
+2. Tab. Amlodipine 5mg - OD (Once daily) before bed - 30 days
+3. Tab. Telmisartan 40mg - OD (Once daily) after breakfast - 30 days
+
+Instructions:
+- Monitor blood glucose and blood pressure daily.
+- Low sodium, low sugar diet.
+- Follow up in 30 days.
+
+Signature: Robert Smith, MD

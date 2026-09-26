@@ -43,7 +43,7 @@ const MyAppointments = () => {
         }
     };
 
-    const upcomingStatuses = ['Requested', 'Confirmed', 'Rescheduled', 'Checked-In', 'Waiting', 'In Progress'];
+    const upcomingStatuses = ['Requested', 'Confirmed', 'Upcoming', 'Rescheduled', 'Checked-In', 'Waiting', 'In Progress'];
     const filtered = appointments.filter(a => 
         (activeTab === 'upcoming' && upcomingStatuses.includes(a.status)) || 
         (activeTab === 'completed' && ['Completed', 'Prescription Generated', 'Lab Tests Ordered'].includes(a.status)) ||

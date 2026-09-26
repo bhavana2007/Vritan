@@ -1,9 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import AppointmentWizard from '../components/appointments/AppointmentWizard';
 import MyAppointments from '../components/appointments/MyAppointments';
 
 const PatientAppointments = () => {
-    const [activeTab, setActiveTab] = useState('book'); // 'book' or 'manage'
+    const [searchParams, setSearchParams] = useSearchParams();
+    const initialTab = searchParams.get('tab') === 'manage' ? 'manage' : 'book';
+    const [activeTab, setActiveTab] = useState(initialTab);
+
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab === 'manage' || tab === 'book') {
+            setActiveTab(tab);
+        }
+    }, [searchParams]);
+
+    const handleTabChange = (tab) => {
+        setActiveTab(tab);
+        setSearchParams(prev => {
+            const newParams = new URLSearchParams(prev);
+            newParams.set('tab', tab);
+            return newParams;
+        });
+    };
 
     return (
         <div className="flex flex-col h-full animate-fade-in">
@@ -18,7 +37,7 @@ const PatientAppointments = () => {
                     <div className="max-w-6xl mx-auto">
                         <div className="flex space-x-1 mb-6 bg-white p-1 rounded-xl shadow-sm inline-flex">
                             <button
-                                onClick={() => setActiveTab('book')}
+                                onClick={() => handleTabChange('book')}
                                 className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${
                                     activeTab === 'book' 
                                         ? 'bg-blue-600 text-white shadow' 
@@ -28,7 +47,7 @@ const PatientAppointments = () => {
                                 Book Appointment
                             </button>
                             <button
-                                onClick={() => setActiveTab('manage')}
+                                onClick={() => handleTabChange('manage')}
                                 className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${
                                     activeTab === 'manage' 
                                         ? 'bg-blue-600 text-white shadow' 

@@ -158,23 +158,23 @@ const PatientLayout = () => {
       </button>
 
       {/* Slide-over Voice Assistant Panel */}
+      {/* Backdrop */}
       {isVoiceAgentOpen && (
-        <>
-          {/* Backdrop */}
-          <div 
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 transition-opacity"
-            onClick={() => setIsVoiceAgentOpen(false)}
-            aria-hidden="true"
-          />
-          {/* Panel */}
-          <div className="fixed inset-y-0 right-0 z-50 w-full md:w-[400px] lg:w-[450px] shadow-2xl transform transition-transform duration-300 ease-in-out translate-x-0">
-            <VoiceAssistant 
-              standalone={false} 
-              onClose={() => setIsVoiceAgentOpen(false)} 
-            />
-          </div>
-        </>
+        <div 
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 transition-opacity"
+          onClick={() => setIsVoiceAgentOpen(false)}
+          aria-hidden="true"
+        />
       )}
+      {/* Panel */}
+      <div className={`fixed inset-y-0 right-0 z-50 w-full md:w-[400px] lg:w-[450px] shadow-2xl transform transition-transform duration-300 ease-in-out ${isVoiceAgentOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <VoiceAssistant 
+          standalone={false} 
+          onClose={() => setIsVoiceAgentOpen(false)}
+          isOpen={isVoiceAgentOpen}
+          onOpen={() => setIsVoiceAgentOpen(true)}
+        />
+      </div>
 
     </div>
   );

@@ -1285,6 +1285,19 @@ def is_eligible_for_qr(record_or_prescription, db: Session) -> bool:
         # MedicalRecord
         if record_or_prescription.record_type != "prescription":
             return False
+            
+        # Check if any medicine requires manual review
+        if record_or_prescription.detected_medicines:
+            import json
+            try:
+                meds = json.loads(record_or_prescription.detected_medicines)
+                if isinstance(meds, list):
+                    for med in meds:
+                        if isinstance(med, dict) and med.get("requires_manual_review"):
+                            return False
+            except Exception:
+                pass
+                
         if record_or_prescription.verification_status == "verified":
             return True
         status = resolve_prescription_status(record_or_prescription, db)

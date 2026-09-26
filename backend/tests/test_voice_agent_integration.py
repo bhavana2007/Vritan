@@ -146,7 +146,7 @@ def test_booking_guard_premature_booking_fails(setup_database):
     result = asyncio.run(agent.process_user_input("Book me an appointment"))
     
     assert agent.state["appointment_state"] == "READY_FOR_CONFIRMATION"
-    assert result == "I need your confirmation first. Would you like me to book this appointment?"
+    assert result == "I need your confirmation before booking. Should I proceed?"
 
 # TEST 6: After confirmation, booking is performed for the authenticated patient only.
 def test_booking_is_performed_for_authenticated_patient(setup_database):

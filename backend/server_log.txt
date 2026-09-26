@@ -1,0 +1,14 @@
+INFO:     Started server process [20512]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+DATABASE STARTUP: Running in DEVELOPMENT mode. Engine: MySQL. URL: mysql+pymysql://root:****@localhost:3307/medilocker
+================ DEBUG ================
+APPOINTMENT_UTILS LOADED FROM: D:\Vritan\backend\appointment_utils.py
+SYNC FUNCTION: D:\Vritan\backend\appointment_utils.py
+SYNC SIGNATURE: (appointment, slot) -> bool
+=======================================
+Firebase Admin initialized successfully.
+ADMIN EXISTS - Admin account already exists, skipping bootstrap

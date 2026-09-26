@@ -64,12 +64,12 @@ def _current_user_from_token(
 
 
 def _require_verified_doctor(current_doctor: Doctor) -> Doctor:
-    if current_doctor.verification_status == "rejected":
+    if current_doctor.verification_status and current_doctor.verification_status.upper() == "REJECTED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your verification request was rejected. Please contact support.",
         )
-    if not current_doctor.is_verified or current_doctor.verification_status not in ("approved", "VERIFIED"):
+    if not current_doctor.is_verified or not current_doctor.verification_status or current_doctor.verification_status.upper() not in ("APPROVED", "VERIFIED"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Doctor account must be verified before searching patients",
@@ -428,8 +428,9 @@ def get_patient_medical_records(
     query = db.query(MedicalRecord).filter(MedicalRecord.patient_id == patient.id)
     # Removed _apply_record_search as it was imported from auth.py which is not ideal
     # This needs to be replaced with a proper search function if full-text search on medical records is needed
+    from routers.auth import _medical_record_public
     return [
-        MedicalRecordPublic.model_validate(record)
+        _medical_record_public(record)
         for record in query.order_by(MedicalRecord.uploaded_at.desc(), MedicalRecord.id.desc()).all()
     ]
 

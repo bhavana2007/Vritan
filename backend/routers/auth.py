@@ -279,6 +279,11 @@ def _resolve_password_login_user(db: Session, identifier_raw: str) -> UserModel 
     if base_user:
         return base_user
 
+    # 0.5. User by direct email match (crucial for branch_admin, lab_tech, etc)
+    user_by_email = db.query(UserModel).filter(func.lower(UserModel.email) == term).first()
+    if user_by_email:
+        return user_by_email
+
     # 1. Doctor by Email
     doc_user = db.query(UserModel).join(Doctor).filter(
         func.lower(Doctor.email) == term
@@ -351,12 +356,12 @@ def _require_current_doctor(current_user: UserModel) -> Doctor:
 
 def _require_verified_doctor(current_user: UserModel) -> Doctor:
     doctor = _require_current_doctor(current_user)
-    if doctor.verification_status == "rejected":
+    if doctor.verification_status and doctor.verification_status.upper() == "REJECTED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your verification request was rejected. Please contact support.",
         )
-    if not doctor.is_verified or doctor.verification_status not in ("approved", "VERIFIED"):
+    if not doctor.is_verified or not doctor.verification_status or doctor.verification_status.upper() not in ("APPROVED", "VERIFIED"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Doctor account must be verified before searching patients",
@@ -502,7 +507,11 @@ def _resolve_record_title_and_condition(record: MedicalRecord) -> tuple[str, str
                 if ai_structured_data:
                     doc_name = ai_structured_data.get("doctor_name") or ai_structured_data.get("doctor_or_hospital")
                 
-                doc_title = "Prescription"
+                if doc_name:
+                    doc_only = doc_name.split(" - ")[0].strip()
+                    doc_title = f"Prescription — {doc_only}"
+                else:
+                    doc_title = "Prescription"
     else:
         if not doc_title:
             if record.laboratory_id:

@@ -26,3 +26,5 @@ backend/uploads/**
 
 **/__pycache__/
 *.pyc
+**/serviceAccountKey.json
+**/*serviceAccount*.json

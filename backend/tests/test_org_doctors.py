@@ -37,7 +37,7 @@ def test_org_admin_doctors_api(db):
     
     # Mock authentication token
     from security import create_access_token
-    token = create_access_token(data={"sub": admin.email, "role": admin.role})
+    token = create_access_token(user_id=admin.id, role=admin.role, email=admin.email, mobile=admin.mobile if hasattr(admin, "mobile") else None, is_verified=True)
     headers = {"Authorization": f"Bearer {token}"}
     
     # Also test that the other endpoints called in the frontend work

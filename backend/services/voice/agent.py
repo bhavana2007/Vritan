@@ -17,7 +17,7 @@ class VoiceAgentCore:
             from google import genai
             self.client = genai.Client(api_key=self.api_key)
             self.chat = self.client.chats.create(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 config=self._get_gemini_config()
             )
         else:
@@ -51,22 +51,26 @@ class VoiceAgentCore:
             )
             declarations.append(decl)
             
+        import datetime
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        
         system_prompt = f"""
 You are the VRITAN AI Voice Agent, a professional healthcare assistant for patients.
 You are assisting the currently authenticated patient: {self.patient.full_name}.
+Today's date is {today_str}.
 
-CRITICAL RULES:
-1. You can ONLY book an appointment if the patient has EXPLICITLY confirmed it.
-2. Before calling `book_appointment`, you must gather all required info (doctor, date, time, slot_id, organization/branch/dept), and ASK the patient: "Would you like me to book this appointment?"
-3. Only if the patient replies with "Yes", "Confirm", or "Book it", you may call the `book_appointment` tool.
-4. If a date like "tomorrow" is mentioned, resolve it using the current date context (you must ask the user if you don't know the date).
-5. Never expose raw API errors or technical details. Be polite and patient-friendly.
-6. Never ask the patient for their internal patient ID.
-7. Never use another patient's information.
-8. All patient-specific operations must use the authenticated patient context supplied by the backend.
-9. Do not reveal internal IDs, JWTs, database identifiers, or authentication details.
-
-Start by asking how you can help the patient today. Keep responses short and conversational, as they will be spoken aloud.
+CRITICAL RULES FOR APPOINTMENT BOOKING:
+1. Always guide the patient step-by-step. NEVER assume missing information.
+2. If the patient describes a symptom (e.g. "fever"), deduce the relevant medical department (e.g. "General Medicine" or "Internal Medicine").
+3. Use `search_organizations` to find hospitals.
+4. Use `search_branches`, `search_departments`, and `search_doctors` to find available doctors in the relevant department.
+5. Ask the patient if they would like to book an appointment with the found doctor.
+6. If they say YES, ask for a date (or deduce if they say "tomorrow").
+7. Use `find_available_slots` to check real availability for that doctor on that date.
+8. Present the available time slots to the patient and ask them to choose.
+9. Before booking, you MUST confirm the final details: "Book Dr. X at Hospital Y on [Date] at [Time]?"
+10. Only call `book_appointment` if the patient says "Yes", "Confirm", or "Book it" to the final confirmation.
+11. Do not expose internal IDs to the user. Speak naturally. All patient-specific operations use the authenticated context.
 """
         return types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -86,11 +90,10 @@ Start by asking how you can help the patient today. Keep responses short and con
         positive_words = ["yes", "confirm", "book it", "sure", "okay", "do it", "yeah", "please book it", "that's fine"]
         negative_words = ["no", "cancel", "not now", "change", "stop", "don't book it"]
         
-        if self.state["appointment_state"] == "READY_FOR_CONFIRMATION":
-            if any(w in text_lower for w in positive_words):
-                self.state["appointment_state"] = "CONFIRMED"
-            elif any(w in text_lower for w in negative_words):
-                self.state["appointment_state"] = "CANCELLED"
+        if any(w in text_lower for w in positive_words):
+            self.state["appointment_state"] = "CONFIRMED"
+        elif any(w in text_lower for w in negative_words):
+            self.state["appointment_state"] = "CANCELLED"
                 
         try:
             from google.genai import types
@@ -253,15 +256,31 @@ Start by asking how you can help the patient today. Keep responses short and con
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"LLM Error: {error_msg}")
             
-            # Detect Google Gemini HTTP 429 RESOURCE_EXHAUSTED
-            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "Quota exceeded" in error_msg:
+            # Categorize the error for the backend logs
+            if not self.api_key:
+                logger.error("CONFIGURATION_ERROR: GEMINI_API_KEY is not set.")
+            elif "401" in error_msg or "403" in error_msg or "PERMISSION_DENIED" in error_msg or "unauthorized" in error_msg.lower():
+                logger.error(f"AUTH_ERROR: AI provider authentication failed - {error_msg}")
+            elif "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "Quota exceeded" in error_msg:
+                logger.error(f"AI_PROVIDER_ERROR: Quota exceeded - {error_msg}")
                 return "AI_QUOTA_EXCEEDED"
-            elif "parse" in error_msg.lower() or "json" in error_msg.lower():
-                return "AI_PARSE_ERROR"
-            else:
+            elif "timeout" in error_msg.lower():
+                logger.error(f"TIMEOUT: AI provider request timed out - {error_msg}")
+            elif "503" in error_msg or "500" in error_msg:
+                logger.error(f"PROVIDER_ERROR: AI service is currently unavailable or experiencing high demand - {error_msg}")
                 return "AI_PROVIDER_UNAVAILABLE"
+            elif "connection" in error_msg.lower() or "network" in error_msg.lower():
+                logger.error(f"NETWORK_ERROR: Could not reach AI provider - {error_msg}")
+            elif "parse" in error_msg.lower() or "json" in error_msg.lower():
+                logger.error(f"VALIDATION_ERROR: Failed to parse AI response - {error_msg}")
+                return "AI_PARSE_ERROR"
+            elif "not found" in error_msg.lower() or "404" in error_msg:
+                logger.error(f"CONFIGURATION_ERROR: AI model or endpoint not found - {error_msg}")
+            else:
+                logger.error(f"AI_PROVIDER_ERROR: Unexpected error - {error_msg}")
+            
+            return "AI_PROVIDER_UNAVAILABLE"
 
     def _fallback_rule_based_processor(self, user_text: str) -> str:
         """

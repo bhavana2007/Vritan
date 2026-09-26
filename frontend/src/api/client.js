@@ -145,7 +145,9 @@ class ApiClient {
           await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay before retry
           return this.request(endpoint, options, retries - 1);
         }
-        const networkError = new Error(error.message || "Unable to connect to the server. Check your internet connection.");
+        const networkError = new Error("Unable to reach the server. Please check the connection and try again.");
+        networkError.originalMessage = error.message;
+        networkError.isNetworkError = true;
         networkError.isFriendly = true;
         throw networkError;
       }

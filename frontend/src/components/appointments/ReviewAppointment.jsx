@@ -5,11 +5,24 @@ const ReviewAppointment = ({ data, onNext, onBack }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState(null);
 
+    const verifyBookingStatus = async (payload) => {
+        const status = await appointmentsApi.getBookingStatus(payload);
+        if (status?.found && status.appointment) {
+            onNext({
+                appointmentResponse: status.appointment,
+                recoveredBooking: true
+            });
+            return true;
+        }
+        return false;
+    };
+
     const handleConfirm = async () => {
         setIsSubmitting(true);
         setError(null);
+        let payload = null;
         try {
-            const payload = {
+            payload = {
                 doctor_id: data.doctor?.user_id || data.doctor?.id,
                 department_id: data.department?.id || null,
                 branch_id: data.branch?.id || null,
@@ -36,7 +49,19 @@ const ReviewAppointment = ({ data, onNext, onBack }) => {
             onNext({ appointmentResponse: response });
         } catch (err) {
             console.error(err);
-            setError(err.message || "Failed to book appointment. Please try again.");
+            if (payload) {
+                try {
+                    const recovered = await verifyBookingStatus(payload);
+                    if (recovered) return;
+                } catch (statusErr) {
+                    console.error("Booking status verification failed:", statusErr);
+                }
+            }
+
+            const message = err?.message && err.message !== "Failed to fetch"
+                ? err.message
+                : "We could not confirm the booking response. Please try again, or check My Appointments before retrying.";
+            setError(message);
         } finally {
             setIsSubmitting(false);
         }

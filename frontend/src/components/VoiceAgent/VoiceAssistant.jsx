@@ -1,77 +1,43 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, PhoneOff, Activity, AlertCircle, X } from "lucide-react";
+import { Mic, MicOff, Activity, AlertCircle, X } from "lucide-react";
 
-const VoiceAssistant = ({ standalone = true, onClose }) => {
-  const [state, setState] = useState("IDLE"); // IDLE, LISTENING, THINKING, SPEAKING, ERROR, DISCONNECTED
-  const [transcript, setTranscript] = useState("");
-  const [agentResponse, setAgentResponse] = useState("Connecting to VRITAN Voice...");
+// Helper to check if string contains wake word
+const containsWakeWord = (text) => {
+  if (!text) return false;
+  const normalized = text.toLowerCase().trim().replace(/[.,!?;:]/g, '');
+  return normalized.includes("hello vritan") || 
+         normalized.includes("hello vritaan") || 
+         normalized.includes("hey vritan") || 
+         normalized.includes("hey vritaan");
+};
+
+const VoiceAssistant = ({ standalone = true, onClose, isOpen, onOpen }) => {
+  const [state, setState] = useState("WAKE_LISTENING"); // WAKE_LISTENING, LISTENING, THINKING, SPEAKING, ERROR, PERMISSION_REQUIRED, IDLE
+  const [messages, setMessages] = useState([]); // { id, role: "user" | "assistant", text, timestamp, source }
   const [errorMsg, setErrorMsg] = useState("");
-  const wsRef = useRef(null);
-  const recognitionRef = useRef(null);
-  const autoRestartMic = useRef(false);
   const [patientName, setPatientName] = useState("");
   const [authError, setAuthError] = useState(false);
-  const [voices, setVoices] = useState([]);
   
-  // Use browser SpeechSynthesis and SpeechRecognition for V1
-  const synth = window.speechSynthesis;
+  const wsRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const synthRef = useRef(window.speechSynthesis);
+  const messagesEndRef = useRef(null);
 
+  // Auto-scroll
   useEffect(() => {
-    // Handle Chrome's asynchronous voice loading
-    const loadVoices = () => {
-      if (synth) {
-        const availableVoices = synth.getVoices();
-        setVoices(availableVoices);
-      }
-    };
-    
-    if (synth) {
-      loadVoices();
-      if (synth.onvoiceschanged !== undefined) {
-        synth.onvoiceschanged = loadVoices;
-      }
+    if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-    
-    // Initialize Speech Recognition
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = 'en-US';
+  }, [messages, state]);
 
-      recognitionRef.current.onresult = (event) => {
-        const current = event.resultIndex;
-        const result = event.results[current][0].transcript;
-        setTranscript(result);
-        
-        // Send to backend
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ text: result }));
-          setState("THINKING");
-        }
-      };
-
-      recognitionRef.current.onerror = (event) => {
-        console.error("Speech recognition error", event.error);
-        if (event.error !== "no-speech") {
-          setState("ERROR");
-          setErrorMsg("Speech recognition failed. Please try again.");
-          autoRestartMic.current = false;
-        }
-      };
-    } else {
-      setState("ERROR");
-      setErrorMsg("Your browser does not support Voice Recognition.");
-    }
-
+  // Handle Authentication and Profile Fetch
+  useEffect(() => {
     const token = localStorage.getItem("medilocker_token");
     if (!token) {
       setAuthError(true);
       return;
     }
 
-    // Fetch patient profile
     const fetchProfile = async () => {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -89,132 +55,125 @@ const VoiceAssistant = ({ standalone = true, onClose }) => {
       }
     };
     fetchProfile();
-
-    // Connect WebSocket on mount
-    connect();
-
-    return () => {
-      disconnect();
-    };
   }, []);
 
-  const connect = () => {
-    try {
-      setErrorMsg("");
-      const token = localStorage.getItem("medilocker_token");
-      if (!token) {
-        throw new Error("Not authenticated");
-      }
-      
-      const wsUrl = import.meta.env.VITE_API_URL 
-        ? import.meta.env.VITE_API_URL.replace("http", "ws") + `/voice/ws?token=${token}`
-        : `ws://localhost:8000/voice/ws?token=${token}`;
-        
-      wsRef.current = new WebSocket(wsUrl);
-      
-      wsRef.current.onopen = () => {
-        setState("IDLE");
-        // We do NOT start listening automatically here
-        autoRestartMic.current = false;
-      };
-      
-      wsRef.current.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === "ERROR") {
-          setState("ERROR");
-          setErrorMsg(data.error || "An error occurred.");
-          autoRestartMic.current = false;
-          stopListening();
-        } else if (data.type === "SPEAKING") {
-          // Do not setState to SPEAKING here immediately; let utterance.onstart handle it so it syncs with audio
-          if (data.text === "AI_QUOTA_EXCEEDED") {
-            const spokenError = "I'm temporarily unable to process AI requests because the AI service quota has been reached. Please try again later.";
-            setAgentResponse(spokenError);
-            speak(spokenError);
-            setErrorMsg("Voice AI is temporarily unavailable because the AI usage limit has been reached. Please try again later.");
-          } else if (data.text === "AI_PARSE_ERROR") {
-            const spokenError = "I'm sorry, I couldn't understand the AI response. Please try again.";
-            setAgentResponse(spokenError);
-            speak(spokenError);
-          } else if (data.text === "AI_PROVIDER_UNAVAILABLE") {
-            const spokenError = "I'm sorry, the AI service is currently unavailable. Please try again later.";
-            setAgentResponse(spokenError);
-            speak(spokenError);
-          } else {
-            setAgentResponse(data.text);
-            speak(data.text);
-          }
-        } else if (data.type === "THINKING") {
-          setState("THINKING");
-        }
-      };
-      
-      wsRef.current.onclose = () => {
-        setState("DISCONNECTED");
-        autoRestartMic.current = false;
-        stopListening();
-      };
-      
-    } catch (err) {
-      console.error(err);
-      setState("ERROR");
-      setErrorMsg("Failed to connect to the voice agent.");
-    }
+  const addMessage = (role, text) => {
+    setMessages(prev => [...prev, {
+      id: Date.now().toString() + Math.random().toString(),
+      role,
+      text,
+      timestamp: new Date().toISOString(),
+      source: "voice"
+    }]);
   };
 
-  const disconnect = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-    stopListening();
-    if (synth && synth.speaking) {
-      synth.cancel();
-    }
-    setState("DISCONNECTED");
-    autoRestartMic.current = false;
-  };
-
-  const startListening = () => {
+  const startRecognition = () => {
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
-        setState("LISTENING");
-      } catch(e) {
-        console.error("Could not start recognition", e);
+      } catch (e) {
+         // Already started
       }
     }
   };
 
-  const stopListening = () => {
+  const stopRecognition = () => {
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch(e) {}
+      } catch (e) {}
     }
   };
 
+  // Connect WebSocket
+  useEffect(() => {
+    if (authError) return;
+    
+    const connect = () => {
+      try {
+        const token = localStorage.getItem("medilocker_token");
+        if (!token) return;
+        
+        const wsUrl = import.meta.env.VITE_API_URL 
+          ? import.meta.env.VITE_API_URL.replace("http", "ws") + `/voice/ws?token=${token}`
+          : `ws://localhost:8000/voice/ws?token=${token}`;
+          
+        wsRef.current = new WebSocket(wsUrl);
+        
+        wsRef.current.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === "ERROR") {
+            setState("ERROR");
+            setErrorMsg(data.error || "An error occurred.");
+            setTimeout(() => {
+                setState("WAKE_LISTENING");
+                setErrorMsg("");
+                startRecognition();
+            }, 3000);
+          } else if (data.type === "SPEAKING") {
+            let responseText = data.text;
+            if (data.text === "AI_QUOTA_EXCEEDED") {
+              responseText = "I'm temporarily unable to process AI requests because the AI service quota has been reached.";
+            } else if (data.text === "AI_PARSE_ERROR") {
+              responseText = "I'm sorry, I couldn't understand the AI response. Please try again.";
+            } else if (data.text === "AI_PROVIDER_UNAVAILABLE") {
+              responseText = "I'm sorry, the AI service is currently unavailable. Please try again later.";
+            }
+            
+            // Add message FIRST so it renders immediately
+            addMessage("assistant", responseText);
+            
+            // Then speak
+            speak(responseText);
+          }
+        };
+        
+        wsRef.current.onclose = () => {
+          // Attempt to reconnect if needed, but for now do nothing to avoid loop
+        };
+        
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    
+    connect();
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [authError]);
+
   const speak = (text) => {
+    const synth = synthRef.current;
     if (!synth) {
-      console.warn("SpeechSynthesis is not supported in this browser.");
-      return;
+       setState("WAKE_LISTENING");
+       startRecognition();
+       return;
     }
 
     if (synth.speaking) {
       synth.cancel();
     }
     
-    console.log("[VOICE TTS] Available:", !!window.speechSynthesis);
-    console.log("[VOICE TTS] Voices:", synth.getVoices());
-    console.log("[VOICE TTS] Speaking:", synth.speaking);
-    console.log("[VOICE TTS] Response:", text);
-    
     const utterance = new SpeechSynthesisUtterance(text);
     
-    // Select an available English voice if possible
+    // Select an available English female voice if possible
     const availableVoices = synth.getVoices();
-    const englishVoice = availableVoices.find(voice => voice.lang.startsWith("en-"));
-    if (englishVoice) {
-      utterance.voice = englishVoice;
+    const femaleEnglishVoices = availableVoices.filter(v => 
+        v.lang.startsWith("en-") && 
+        (v.name.toLowerCase().includes("female") || 
+         v.name.toLowerCase().includes("zira") || 
+         v.name.toLowerCase().includes("samantha") ||
+         v.name.toLowerCase().includes("google us english") || 
+         v.name.toLowerCase().includes("victoria"))
+    );
+    const englishVoices = availableVoices.filter(v => v.lang.startsWith("en-"));
+    
+    if (femaleEnglishVoices.length > 0) {
+      utterance.voice = femaleEnglishVoices[0];
+    } else if (englishVoices.length > 0) {
+      utterance.voice = englishVoices[0];
     }
     
     utterance.volume = 1;
@@ -222,53 +181,175 @@ const VoiceAssistant = ({ standalone = true, onClose }) => {
     utterance.pitch = 1;
     
     utterance.onstart = () => {
-       console.log("[VOICE TTS] Started speaking.");
        setState("SPEAKING");
     };
 
     utterance.onerror = (e) => {
-       console.error("[VOICE TTS] Error:", e);
-       setState("IDLE");
+       setState("WAKE_LISTENING");
+       startRecognition();
     };
 
     utterance.onend = () => {
-      console.log("[VOICE TTS] Finished speaking.");
-      // Once agent finishes speaking, go back to listening ONLY if autoRestartMic is true
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        if (autoRestartMic.current) {
-          startListening();
-        } else {
-          setState("IDLE");
-        }
-      } else if (state === "SPEAKING") { // Fallback for Test Voice button without WS
-          setState("IDLE");
-      }
+       setState("WAKE_LISTENING");
+       startRecognition();
     };
     
     synth.speak(utterance);
   };
 
-  const toggleMute = () => {
-    if (state === "DISCONNECTED") {
-      connect();
-      return;
+  const initRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setState("ERROR");
+      setErrorMsg("Your browser does not support Voice Recognition.");
+      return null;
     }
-    
-    if (state === "LISTENING") {
-      autoRestartMic.current = false;
-      stopListening();
-      setState("IDLE");
-    } else {
-      autoRestartMic.current = true;
-      // If synth is currently speaking, it will start listening when it finishes.
-      // But if it's idle, we start listening immediately.
-      if (state !== "SPEAKING") {
-        startListening();
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true; // Use interim results for faster wake-word detection
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
       }
-    }
+
+      const fullTranscript = (finalTranscript || interimTranscript).trim();
+
+      if (!fullTranscript) return;
+
+      setState(currentState => {
+        if (currentState === "WAKE_LISTENING") {
+          if (containsWakeWord(fullTranscript)) {
+            // Wake word detected!
+            if (onOpen) onOpen();
+            
+            // Abort current recognition to clear interim results, and restart in LISTENING mode
+            recognition.abort();
+            
+            setTimeout(() => {
+                setState("LISTENING");
+                startRecognition();
+            }, 200);
+            
+            return "LISTENING";
+          }
+          return currentState;
+        } 
+        
+        if (currentState === "LISTENING") {
+          if (finalTranscript) {
+             addMessage("user", finalTranscript);
+             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ text: finalTranscript }));
+                return "THINKING";
+             } else {
+                setErrorMsg("Backend connection not ready.");
+                return "ERROR";
+             }
+          }
+          return currentState;
+        }
+
+        // If speaking and user starts talking (barge-in)
+        if (currentState === "SPEAKING") {
+             if (synthRef.current && synthRef.current.speaking) {
+                synthRef.current.cancel(); // Stop TTS
+             }
+             if (finalTranscript) {
+                 addMessage("user", finalTranscript);
+                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ text: finalTranscript }));
+                    return "THINKING";
+                 }
+             }
+             return "LISTENING";
+        }
+
+        return currentState;
+      });
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error", event.error);
+      if (event.error === "not-allowed") {
+        setState("PERMISSION_REQUIRED");
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+         // Silently restart for other errors if we want continuous listening
+         setTimeout(startRecognition, 1000);
+      }
+    };
+
+    recognition.onend = () => {
+      // Automatic restart if we are still supposed to be listening
+      setState(currentState => {
+          if (currentState === "WAKE_LISTENING" || currentState === "LISTENING") {
+             setTimeout(startRecognition, 100);
+          }
+          return currentState;
+      });
+    };
+
+    return recognition;
   };
 
-  // Render variables based on standalone mode
+  // Setup initial recognition
+  useEffect(() => {
+      recognitionRef.current = initRecognition();
+      startRecognition();
+      
+      return () => {
+          stopRecognition();
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleMicClick = () => {
+     if (state === "PERMISSION_REQUIRED") {
+        // Prompt for permission again
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
+            setState("WAKE_LISTENING");
+            startRecognition();
+        }).catch(() => {
+            setState("PERMISSION_REQUIRED");
+        });
+        return;
+     }
+
+     if (state === "LISTENING" || state === "WAKE_LISTENING") {
+         setState("IDLE");
+         stopRecognition();
+     } else {
+         if (synthRef.current && synthRef.current.speaking) {
+             synthRef.current.cancel();
+         }
+         setState("LISTENING");
+         startRecognition();
+     }
+  };
+
+  // Render helpers
+  const getStatusDisplay = () => {
+      switch (state) {
+          case "WAKE_LISTENING": return "Listening for 'Hello Vritan'...";
+          case "LISTENING": return "Listening...";
+          case "THINKING": return "Thinking...";
+          case "SPEAKING": return "Speaking...";
+          case "ERROR": return "Error";
+          case "PERMISSION_REQUIRED": return "Mic Disabled";
+          case "IDLE": return "Paused";
+          default: return "";
+      }
+  };
+
   const containerClass = standalone 
     ? "flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6" 
     : "flex flex-col h-full w-full bg-white shadow-xl";
@@ -285,12 +366,17 @@ const VoiceAssistant = ({ standalone = true, onClose }) => {
         <div className="bg-indigo-600 p-4 text-white flex flex-col space-y-2 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Activity className="w-6 h-6 animate-pulse" />
+              <Activity className={`w-6 h-6 ${state === 'LISTENING' || state === 'SPEAKING' ? 'animate-pulse' : ''}`} />
               <h2 className="text-xl font-bold">VRITAN Voice</h2>
             </div>
             <div className="flex items-center space-x-3">
-              <span className="text-xs font-medium bg-indigo-500 px-2 py-1 rounded-full uppercase tracking-wider">
-                {state}
+              <span className={`text-xs font-medium px-2 py-1 rounded-full uppercase tracking-wider ${
+                  state === "ERROR" || state === "PERMISSION_REQUIRED" ? "bg-red-500" :
+                  state === "LISTENING" ? "bg-green-500" :
+                  state === "IDLE" ? "bg-gray-500" :
+                  "bg-indigo-500"
+              }`}>
+                {getStatusDisplay()}
               </span>
               {!standalone && onClose && (
                 <button onClick={onClose} className="p-1 hover:bg-indigo-500 rounded-full transition-colors" aria-label="Close Assistant">
@@ -302,7 +388,6 @@ const VoiceAssistant = ({ standalone = true, onClose }) => {
           {patientName && (
             <div>
               <p className="text-lg font-medium">Hello, {patientName} 👋</p>
-              <p className="text-xs text-indigo-200">Authenticated as {patientName}</p>
             </div>
           )}
         </div>
@@ -310,6 +395,18 @@ const VoiceAssistant = ({ standalone = true, onClose }) => {
         {/* Conversation Area */}
         <div className="flex-1 p-6 flex flex-col space-y-6 overflow-y-auto min-h-[300px]">
           
+          {state === "PERMISSION_REQUIRED" && (
+             <div className="bg-orange-50 p-4 rounded-lg flex flex-col space-y-2 border border-orange-200">
+               <div className="flex items-start space-x-2 text-orange-800">
+                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                 <p className="text-sm font-medium">Microphone access is required for the VRITAN voice assistant.</p>
+               </div>
+               <button onClick={handleMicClick} className="self-start text-sm bg-orange-100 hover:bg-orange-200 text-orange-900 px-3 py-1.5 rounded-md transition-colors">
+                  Enable Microphone
+               </button>
+             </div>
+          )}
+
           {errorMsg && (
             <div className="bg-red-50 p-3 rounded-lg flex items-start space-x-2 text-red-700">
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -317,58 +414,56 @@ const VoiceAssistant = ({ standalone = true, onClose }) => {
             </div>
           )}
 
-          <div className="flex flex-col space-y-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agent</span>
-            <div className="bg-indigo-50 p-4 rounded-2xl rounded-tl-none border border-indigo-100">
-              <p className="text-gray-800 text-lg leading-relaxed">{agentResponse}</p>
-            </div>
-          </div>
-
-          {transcript && (
-            <div className="flex flex-col space-y-2 items-end">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">You</span>
-              <div className="bg-gray-100 p-4 rounded-2xl rounded-tr-none border border-gray-200 max-w-[85%]">
-                <p className="text-gray-700">{transcript}</p>
-              </div>
-            </div>
+          {messages.length === 0 && state === "WAKE_LISTENING" && (
+             <div className="flex-1 flex items-center justify-center">
+                 <p className="text-gray-400 text-center text-sm">
+                     Say <span className="font-semibold">"Hello Vritan"</span> to start<br/>or tap the microphone.
+                 </p>
+             </div>
           )}
+
+          {messages.map((msg) => (
+              <div key={msg.id} className={`flex flex-col space-y-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mx-1">
+                      {msg.role === 'user' ? 'You' : 'VRITAN'}
+                  </span>
+                  <div className={`p-3.5 rounded-2xl max-w-[85%] ${
+                      msg.role === 'user' 
+                      ? 'bg-indigo-600 text-white rounded-tr-sm shadow-sm' 
+                      : 'bg-white text-gray-800 border border-gray-100 shadow-sm rounded-tl-sm'
+                  }`}>
+                      <p className={`text-[15px] leading-relaxed ${msg.role === 'user' ? 'text-white' : 'text-gray-700'}`}>
+                          {msg.text}
+                      </p>
+                  </div>
+              </div>
+          ))}
+          
+          {(state === "LISTENING" || state === "THINKING") && (
+             <div className={`flex space-x-1 items-center py-2 px-1 ${state === "LISTENING" ? "opacity-50" : "opacity-100"}`}>
+                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+             </div>
+          )}
+          
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Controls */}
-        <div className="bg-gray-50 p-6 border-t border-gray-100 flex items-center justify-center space-x-6 flex-shrink-0 relative">
-          {import.meta.env.DEV && (
-            <button 
-               onClick={() => speak("Hello Bhavana, this is the VRITAN Voice Assistant.")}
-               className="absolute left-4 top-1/2 -translate-y-1/2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
-            >
-               Test Voice
-            </button>
-          )}
-          {authError ? (
-             <div className="text-center text-red-600 font-medium">
-               Please log in to use VRITAN Voice.
-             </div>
-          ) : (
-            <>
+        <div className="bg-white p-6 border-t border-gray-50 flex items-center justify-center shadow-[0_-4px_20px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative">
+          {!authError && (
               <button 
-                onClick={toggleMute}
-                className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
-                  state === "LISTENING" 
-                    ? "bg-indigo-600 text-white hover:bg-indigo-700 animate-pulse" 
-                    : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"
+                onClick={handleMicClick}
+                className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all ${
+                  state === "LISTENING" || state === "WAKE_LISTENING"
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700" 
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
                 }`}
+                aria-label="Toggle Microphone"
               >
-                {state === "LISTENING" ? <Mic className="w-8 h-8" /> : <MicOff className="w-8 h-8" />}
+                {state === "LISTENING" || state === "WAKE_LISTENING" ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
               </button>
-              
-              <button 
-                onClick={disconnect}
-                disabled={state === "DISCONNECTED"}
-                className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center hover:bg-red-200 transition-colors disabled:opacity-50"
-              >
-                <PhoneOff className="w-5 h-5" />
-              </button>
-            </>
           )}
         </div>
       </div>

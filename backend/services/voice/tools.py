@@ -63,6 +63,62 @@ class VoiceAgentTools:
                     "type": "object",
                     "properties": {}
                 }
+            },
+            {
+                "name": "search_organizations",
+                "description": "Searches for active hospitals or organizations. Use this to find hospitals.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "city": {"type": "string"}
+                    }
+                }
+            },
+            {
+                "name": "search_branches",
+                "description": "Searches for branches within an organization.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {"type": "integer"}
+                    },
+                    "required": ["organization_id"]
+                }
+            },
+            {
+                "name": "search_departments",
+                "description": "Searches for medical departments (like General Medicine, Cardiology) within a hospital branch.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "branch_id": {"type": "integer"}
+                    },
+                    "required": ["branch_id"]
+                }
+            },
+            {
+                "name": "search_doctors",
+                "description": "Searches for doctors available in a specific department.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "department_id": {"type": "integer"}
+                    },
+                    "required": ["department_id"]
+                }
+            },
+            {
+                "name": "find_available_slots",
+                "description": "Finds available appointment slots for a specific doctor on a specific date.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "doctor_id": {"type": "integer"},
+                        "date": {"type": "string", "description": "YYYY-MM-DD"}
+                    },
+                    "required": ["doctor_id", "date"]
+                }
             }
         ]
 

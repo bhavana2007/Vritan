@@ -12,5 +12,16 @@ export const appointmentsApi = {
   getAvailableSlots: (doctorId, date) => apiClient.get(`/api/v1/appointments/slots?doctor_id=${doctorId}&date=${date}`),
   lockSlot: (data) => apiClient.post("/api/v1/appointments/slots/lock", data),
   bookAppointment: (data) => apiClient.post("/api/v1/appointments/book", data),
+  getBookingStatus: (data) => {
+    const params = new URLSearchParams({
+      doctor_id: String(data.doctor_id),
+      date: data.date,
+      time: data.time
+    });
+    if (data.slot_id !== undefined && data.slot_id !== null) {
+      params.set("slot_id", String(data.slot_id));
+    }
+    return apiClient.get(`/api/v1/appointments/book/status?${params.toString()}`);
+  },
   cancelAppointment: (id) => apiClient.post(`/patient/appointments/${id}/cancel`)
 };

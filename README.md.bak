@@ -1,0 +1,40 @@
+# Vritan
+
+AI-Powered Intelligent Healthcare Collaboration Platform.
+
+## Local Development
+
+### Backend (FastAPI + MySQL)
+1. Navigate to the `backend` directory: `cd backend`
+2. Install dependencies: `pip install -r requirements.txt`
+3. Create a MySQL database (e.g., `medilocker`).
+4. Configure your `.env` file based on `.env.example`. Make sure `DATABASE_URL` is set.
+5. Start the server: `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
+
+### Frontend (React + Vite)
+1. Navigate to the `frontend` directory: `cd frontend`
+2. Install dependencies: `npm install`
+3. Set the backend URL in `.env`: `VITE_API_URL=http://127.0.0.1:8000`
+4. Start the development server: `npm run dev`
+
+---
+
+## Production Deployment
+
+### Backend (Render)
+To deploy the backend to Render as a Web Service:
+- **Root Directory**: `backend` (Important: This ensures Render finds `requirements.txt`)
+- **Build Command**: `pip install -r requirements.txt`
+- **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- **Environment Variables**:
+  - `DATABASE_URL`: `mysql+pymysql://<user>:<password>@<host>:<port>/<dbname>` (Provision a remote MySQL database on a provider like Aiven, AWS RDS, or PlanetScale, as Render does not offer native MySQL).
+  - `FRONTEND_URL`: `https://vritan-pied.vercel.app` (Important for CORS).
+
+*Note on File Storage*: The current application stores medical record uploads on the local filesystem (`backend/uploads/`). Render's disk is ephemeral and resets on each deployment. To persist files in production, you should attach a Render Persistent Disk to the `/uploads` directory in your Render settings, or refactor the code to use AWS S3 / Google Cloud Storage.
+
+### Frontend (Vercel)
+To deploy the frontend to Vercel:
+- **Framework Preset**: Vite
+- **Root Directory**: `frontend`
+- **Environment Variables**:
+  - `VITE_API_URL`: `https://your-render-backend-url.onrender.com` (Must point to your deployed Render backend API).

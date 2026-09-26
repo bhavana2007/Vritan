@@ -243,6 +243,7 @@ ensure_table_columns(
         "phone_number": "VARCHAR(20) UNIQUE NULL",
         "firebase_uid": "VARCHAR(128) UNIQUE NULL",
         "email": "VARCHAR(255) NULL",
+        "vritan_id": "VARCHAR(50) NULL",
     },
 )
 ensure_table_columns(
