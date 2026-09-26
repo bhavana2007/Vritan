@@ -12,7 +12,7 @@ The VRITAN Voice Assistant has been upgraded to provide a seamless hands-free co
 - **Microphone Permissions**: The app gracefully requests and handles microphone permissions. If denied, a clear message is displayed without intrusive continuous popups.
 - **Continuous Speech Recognition**: Using the Web Speech API, the assistant stays active in a low-power `WAKE_LISTENING` state while the microphone is enabled.
 - **Text Conversation UI**: Every interaction is transcribed. User speech appears as a chat bubble, and AI responses are displayed immediately as text before the speech synthesis begins. This guarantees responses are readable even if TTS fails.
-- **High-Quality Female Voice**: The assistant uses browser-native `speechSynthesis` to automatically select an available English female voice (e.g., Zira, Samantha, Google US English). If a female voice is unavailable, it gracefully falls back to the default English voice.
+- **High-Quality Voice**: The assistant uses browser-native `speechSynthesis`. VRITAN prefers an available female English system voice (e.g., Zira, Samantha, Google US English) and falls back to another available voice when necessary.
 - **Hands-free Interaction**: The assistant automatically returns to the `WAKE_LISTENING` state after it finishes speaking, allowing for follow-up requests without requiring manual clicks.
 - **Barge-In / Interruption**: If the assistant is speaking and you start a new query, the current text-to-speech output is immediately stopped and the system starts processing the new request.
 - **Authentication Integration**: The voice assistant securely uses the authenticated patient's profile and greets them by name.

@@ -11,16 +11,42 @@ from models import User, VerificationState
 from org_models import Organization, Branch, OrganizationMembership
 from security import hash_password
 import uuid
-
 client = TestClient(app)
+
+# Use SQLite memory DB for testing
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from database import Base, get_db
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
+)
+TestingSessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, bind=engine
+)
 
 @pytest.fixture(scope="module")
 def db_session():
-    db = SessionLocal()
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    
     try:
         yield db
     finally:
         db.close()
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 def test_1_branch_id_exists_in_organization_memberships(db_session):
     inspector = inspect(db_session.bind)
@@ -86,7 +112,7 @@ def test_4_branch_admin_authentication(db_session):
     email, pwd, org, branch, user = _create_mock_branch_admin(db_session, status="APPROVED", branch_active=True)
     resp = client.post("/login", json={"identifier": email, "password": pwd})
     assert resp.status_code == 200
-    assert resp.json()["role"] == "branch_admin"
+    assert resp.json()["user"]["role"] == "branch_admin"
 
 def test_5_inactive_branch_login_rejected(db_session):
     email, pwd, org, branch, user = _create_mock_branch_admin(db_session, status="APPROVED", branch_active=False)

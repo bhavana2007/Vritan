@@ -10,14 +10,39 @@ from org_models import Organization, OrganizationMembership, StaffRole, Branch, 
 import pytest
 
 client = TestClient(app)
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from database import Base, get_db
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
+)
+TestingSessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, bind=engine
+)
 
 @pytest.fixture(scope="module")
 def db():
-    db = SessionLocal()
+    Base.metadata.create_all(bind=engine)
+    db_session = TestingSessionLocal()
+    
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    
     try:
-        yield db
+        yield db_session
     finally:
-        db.close()
+        db_session.close()
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 def test_org_admin_doctors_api(db):
     """
